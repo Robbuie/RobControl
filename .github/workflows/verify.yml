@@ -1,0 +1,37 @@
+# The checks that can run without a person watching a window. Same name and shape as the
+# verify.yml in NetControl, Redline PDF, File Manager and File Compare.
+#
+# The release workflow only runs on a tag, so without this nothing runs the suite on the way in.
+name: verify
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Windows, because RobControl.App is net10.0-windows (WPF) and the solution builds it. The
+    # tests themselves are plain net10.0 and talk only to the in-process simulator on loopback.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore RobControl.sln
+
+      # Separate from the test step so that a warning promoted to an error in src/ reads as a build
+      # failure rather than as a failing test. TreatWarningsAsErrors is on for src/ and off for
+      # spikes, tools and tests - see Directory.Build.targets.
+      - name: Build
+        run: dotnet build RobControl.sln -c Release --no-restore
+
+      # Every test runs against robotsim on 127.0.0.1. Nothing here reaches a real controller.
+      - name: Test
+        run: dotnet test RobControl.sln -c Release --no-build --nologo

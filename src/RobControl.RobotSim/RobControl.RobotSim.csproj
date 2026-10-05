@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A fake FANUC controller: an FTP server and a web server serving a profile folder. What lets
+       the whole backup and probe path be written and regression-tested at a desk with no robot.
+
+       It is an exe so it can be started by hand next to the app (point a robot row at 127.0.0.1 and
+       the ports it prints), and it is referenced by the tests, which start it in-process. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>RobControl.RobotSim</RootNamespace>
+    <AssemblyName>robotsim</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RobControl.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Phase 0, packaged: point it at one real robot and it records, read-only, exactly what the
+       controller says - FTP replies, diagnostic files, KCL pages - as a profile folder that robotsim
+       can serve and the tests can run against. See tests/Fixtures/README.md.
+
+       A tool rather than part of the app on purpose: its job is to capture evidence, and its output
+       is meant to be read by a person and committed, not interpreted on the spot. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTool>true</IsTool>
+    <RootNamespace>RobControl.Probe</RootNamespace>
+    <AssemblyName>robcontrol-probe</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RobControl.Core\RobControl.Core.csproj" />
+    <ProjectReference Include="..\..\src\RobControl.RobotSim\RobControl.RobotSim.csproj" />
+  </ItemGroup>
+
+</Project>

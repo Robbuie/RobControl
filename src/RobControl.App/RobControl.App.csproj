@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The WPF front end. A thin shell over RobControl.Core: every fact it shows comes from Core, an
+       archive manifest or the fleet database, and nothing in here opens a socket. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+
+    <!-- WPF needs the Windows framework; this is the only project in src/ that does. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+
+    <!-- Not optional: WPF does not work under InvariantGlobalization, and the failure is a process
+         that exits with no window and no message. See NetControl's CLAUDE.md for the full story. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <RootNamespace>RobControl.App</RootNamespace>
+    <AssemblyName>robcontrol</AssemblyName>
+
+    <!-- Drawn by tools/icon.py and committed, so a build never needs Python. -->
+    <ApplicationIcon>Assets\RobControl.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ObservableObject and the relay commands. Used without its source generators on purpose:
+         the view models are written out longhand so they compile - and can be checked - anywhere
+         the SDK is, not only where the generator runs. -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RobControl.Core\RobControl.Core.csproj" />
+  </ItemGroup>
+
+</Project>

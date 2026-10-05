@@ -1,0 +1,22 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+artifacts/
+dist_installer/
+TestResults/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Probe captures land beside wherever the tool was run. They can hold site program names and
+# comments, so they are committed deliberately into tests/Fixtures after a read-through - never
+# swept in by `git add .`.
+capture-*/
+
+# Scratch from tooling sessions.
+.claude-scratch/

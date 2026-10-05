@@ -1,0 +1,5 @@
+SYNTHETIC
+DI[  1] ON   Part present
+DI[  2] OFF  Clamp closed
+DO[  1] OFF  Gun close
+UI[  1] ON   *IMSTP

@@ -1,0 +1,5 @@
+[*NUMREG*]$NUMREG  Storage: CMOS  Access: RW  : ARRAY[200] OF Numeric Reg
+ SYNTHETIC
+  [1] = 0  ''
+  [2] = 1287  'Weld count'
+  [3] = 14.500000  'Tip dress interval'

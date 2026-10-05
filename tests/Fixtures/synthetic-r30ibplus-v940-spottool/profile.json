@@ -1,0 +1,10 @@
+{
+  "banner": "R-30iB Plus FTP server ready. [SpotTool+ V9.40P/23]  (SYNTHETIC PROFILE)",
+  "ftpUser": null,
+  "ftpPassword": null,
+  "system": "UNIX Type: L8",
+  "homeDevice": "md:",
+  "nlstWithDevicePrefix": false,
+  "diagnosticFilesLocked": false,
+  "kclLocked": false
+}

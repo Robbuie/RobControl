@@ -1,0 +1,3 @@
+SYNTHETIC
+$VERSION  Storage: SHADOW  Access: RO  : STRING[37] = 'V9.40P/23'
+$SCR.$NUM_GROUP  Storage: CMOS  Access: RO  : INTEGER = 1

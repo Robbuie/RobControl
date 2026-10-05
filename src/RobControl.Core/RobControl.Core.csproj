@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The engine. This project MUST NOT reference any UI assembly: the same code path has to drive
+       the WPF app, the probe tool and the tests. If something in here needs to report progress it
+       raises an event or takes an IProgress; it does not know a window exists. -->
+
+  <PropertyGroup>
+    <RootNamespace>RobControl.Core</RootNamespace>
+    <AssemblyName>RobControl.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Parsers are where controller quirks live, so the tests need at them directly. -->
+    <InternalsVisibleTo Include="RobControl.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The fleet database: the robot list and the append-only event log. The only third-party
+         dependency in the engine, for the same reason as in NetControl - and the bundled build
+         rather than .Core, because that is what keeps `dotnet publish` a single self-contained exe.
+
+         Backups themselves are NOT in here. They are plain folders with a manifest.json each, so
+         an engineer with Explorer and no RobControl can still find and use one. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+
+    <!-- Same pin as NetControl: Microsoft.Data.Sqlite 10.0.x still resolves SQLitePCLRaw 2.1.11,
+         whose bundled SQLite carries CVE-2025-6965 and fails NuGetAudit. Drop it once the provider
+         resolves 2.1.12 or later on its own. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+
+</Project>

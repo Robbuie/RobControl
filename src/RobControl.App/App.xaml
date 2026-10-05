@@ -1,0 +1,20 @@
+<Application x:Class="RobControl.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:RobControl.App.Views">
+  <Application.Resources>
+    <ResourceDictionary>
+
+      <!-- The chrome, shared with NetControl value for value. Every colour in it is a
+           {DynamicResource} token that App.OnStartup installs ahead of this dictionary. -->
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Appearance/Controls.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+
+      <views:ReadinessBrushConverter x:Key="ReadinessBrush" />
+      <views:NullToVisibilityConverter x:Key="NotNullToVisible" />
+      <BooleanToVisibilityConverter x:Key="BoolToVisible" />
+
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>
