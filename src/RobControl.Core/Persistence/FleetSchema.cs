@@ -6,7 +6,7 @@ namespace RobControl.Core.Persistence;
 /// </summary>
 internal static class FleetSchema
 {
-    public static IReadOnlyList<string> Steps { get; } = [V1];
+    public static IReadOnlyList<string> Steps { get; } = [V1, V2];
 
     public static int CurrentVersion => Steps.Count;
 
@@ -58,5 +58,36 @@ internal static class FleetSchema
         BEGIN
             SELECT RAISE(ABORT, 'The Event table is append-only: rows may not be deleted.');
         END;
+        """;
+
+    /// <summary>
+    /// Trending: the signals watched on each robot, and their stored samples.
+    ///
+    /// <para>Samples are <b>not</b> append-only, unlike Event: retention prunes them, and that is a
+    /// deliberate difference - a trend is measurement, not a record of what was done to a robot. The
+    /// record of recording (who started it, on what, for how long) is in Event, which stays
+    /// append-only.</para>
+    ///
+    /// <para>Time is integer Unix milliseconds rather than the round-trip text Event uses: there will
+    /// be millions of rows, and a range scan on an integer index is what keeps a chart quick.</para>
+    /// </summary>
+    private const string V2 = """
+        CREATE TABLE TrendSignal (
+            Id          INTEGER PRIMARY KEY,
+            RobotId     INTEGER NOT NULL REFERENCES Robot(Id) ON DELETE CASCADE,
+            Address     TEXT NOT NULL,
+            Label       TEXT,
+            CreatedUtc  TEXT NOT NULL,
+            UNIQUE (RobotId, Address)
+        );
+
+        CREATE TABLE TrendSample (
+            SignalId  INTEGER NOT NULL REFERENCES TrendSignal(Id) ON DELETE CASCADE,
+            UtcMs     INTEGER NOT NULL,
+            Value     REAL NOT NULL
+        );
+
+        CREATE INDEX IX_TrendSample_Signal_Utc ON TrendSample(SignalId, UtcMs);
+        CREATE INDEX IX_TrendSample_Utc ON TrendSample(UtcMs);
         """;
 }

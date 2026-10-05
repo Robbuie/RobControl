@@ -123,15 +123,16 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
     Controllers/                   ControllerIdentity + parser, ShowVarParser, CapabilityProbe
     Backup/                        BackupRunner, FleetBackup, archive layout, manifest, name safety
     History/                       LineDiff (Myers), BackupComparer, TextSniffer
+    Trending/                      SignalAddress, register/IO parsers, RobotSampler, TrendRecorder
     Events/                        IEventSink - how Core writes the record without knowing SQLite
-    Persistence/                   FleetStore: robots, last probe, append-only Event table
+    Persistence/                   FleetStore: robots, last probe, append-only Event, trend signals/samples
     Diagnostics/                   TraceLog (copied from NetControl)
 src/RobControl.App/                WPF front end - net10.0-windows
     Appearance/                    copied value for value from NetControl; default accent amber
     Composition/                   AppHost, AppPaths, dispatcher, UserSettings, NetControlHandoff
     Diagnostics/                   build stamp and the updater, copied from NetControl
     ViewModels/                    all UI logic, free of WPF types
-    Views/                         MainWindow, RobotWindow, AppearanceWindow, UpdateWindow
+    Views/                         MainWindow, RobotWindow, TrendChart (hand-drawn), Appearance/Update
 src/RobControl.RobotSim/           fake controller (FTP + HTTP) serving a profile folder; records
                                    every command and refuses - and lists - anything not a read
 tools/RobControl.Probe/            Phase 0 capture tool: one real robot, read-only, into a profile
@@ -196,6 +197,12 @@ reason written down, not a feature request.
   before the first packet.
 - **Never change a controller's settings to make RobControl work.** Locked KCL, a password on FTP,
   a disabled resource - report it and say where to change it.
+- **Trending reads, and only reads.** Registers and I/O come from diagnostic files over GET; system
+  variables through KCL `SHOW VAR`, which the classifier checks like any other command. There is
+  no path from a signal to setting a port or a register. One loop per robot, one request at a time on
+  it - a one-off "Read now" skips any robot that is recording rather than overlapping its loop -
+  never faster than `TrendRecorder.MinimumInterval` (2 s), and backed off when a robot stops answering.
+  The floor is only lowerable from tests (internal), not from the UI or settings.
 - **Every operation that transmits gets an event row** - backups, KCL reads, file fetches, polls
   (polls summarised per session, not per sample): who, which robot, what was asked, what came back.
 
@@ -219,6 +226,12 @@ exactly what a real controller does instead.
 - KCL is at `/KCL/<command>` with spaces as `%20` and `$`, `[`, `]` literal; the output is inside
   `<XMP>` (or `<PRE>`); a locked resource answers 401 or 403. KCL errors arrive inside a 200.
 - `SHOW VAR` puts the value after the last `=` on the line.
+- `GET /MD/NUMREG.VA` generates the register listing on request, with lines like
+  `[2] = 1287  'Weld count'`; `GET /MD/IOSTATE.DG` lists I/O as `DI[  1] ON ...` (or in an HTML
+  table - the parser tolerates markup between name and value). Both parsers search rather than parse.
+- Generating those two files every few seconds is light enough for a running controller. **This one
+  matters most** - watch the controller's load (and the pendant) the first time a robot is recorded
+  at 2 s, and raise `MinimumInterval` if it is not.
 
 ## C# specifics
 
@@ -271,8 +284,10 @@ schedules and gun data diffed as first-class items.
 **Phase 3 - inspect.** KCL console (classified), system variable / register browser (read),
 alarm history, live I/O view (read), diagnostics bundle for FANUC support.
 
-**Phase 4 - trend.** Chosen variables and registers polled into SQLite, graphs, thresholds,
-maintenance watches (battery, cycle time, alarm rates, weld counts / tip dress).
+**Phase 4 - trend.** *Started in 0.2.0:* registers, I/O and system variables polled into SQLite on
+many robots at once, chart, CSV. Still to do: thresholds and alerts, maintenance watches (battery,
+cycle time, alarm rates, weld counts / tip dress), position registers, saved signal sets ("spot gun
+watch") applied to a robot in one click.
 
 **Phase 5 - write gate.** As defined in Safety. Only after Phases 1-4 have run on real robots.
 
@@ -281,9 +296,15 @@ Roboguide appears; restore assistant.
 
 ## Current state
 
-**0.1.0 - written and tested against the simulator; never yet in front of a real controller.**
+**0.2.0 - written and tested against the simulator; never yet in front of a real controller.**
 
-- Core, RobotSim and the probe tool build clean under warnings-as-errors, and the suite - 133 cases
+0.2.0 added trending (Core/Trending, the Trends tab, `TrendChart`) and multi-robot selection. The
+recorder is tested against two simulators at once, with changing values, a robot that stops
+answering, and KCL locked; the sample tables were checked with Python's sqlite3 as before. The
+chart and the Trends tab XAML have, like the rest of the app, never been compiled.
+
+
+- Core, RobotSim and the probe tool build clean under warnings-as-errors, and the suite - 179 cases
   plus the SQLite ones - passes against `robotsim` on loopback. It was written in a session with no
   NuGet access, so `FleetStore` was compiled against a stand-in for Microsoft.Data.Sqlite (its
   schema and triggers were checked with Python's sqlite3), and xUnit was a stand-in runner. **The
@@ -299,6 +320,8 @@ Roboguide appears; restore assistant.
 1. **Push and let `verify` compile the app.** Fix whatever the XAML compiler finds.
 2. **Phase 0 with a real robot**: `robcontrol-probe <address>` on a V9.40 SpotTool robot, read
    the capture, commit it under `tests/Fixtures/`, and turn every assumption above that it confirms
-   or breaks into a line under *Controller gotchas*.
+   or breaks into a line under *Controller gotchas*. The probe fetches `NUMREG.VA` and `IOSTATE.DG`
+   and prints how many registers and I/O points the trending parsers recognised in them - zero
+   means the format is not what was assumed, and the capture shows what it is instead.
 3. Then the rest of Phase 1: tray icon so scheduled backups survive the window being closed, image
    backup freshness from the plant TFTP folder, and `--diagnose` in NetControl.

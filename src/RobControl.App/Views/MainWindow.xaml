@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:RobControl.App.ViewModels"
+        xmlns:views="clr-namespace:RobControl.App.Views"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="RobControl"
@@ -32,7 +33,8 @@
         <MenuItem Header="E_xit" Click="OnExit" />
       </MenuItem>
       <MenuItem Header="_Backup">
-        <MenuItem Header="Back up _selected" Command="{Binding BackupSelectedCommand}" />
+        <MenuItem Header="Back up _selected" Command="{Binding BackupSelectedCommand}"
+                  ToolTip="Every robot selected in the list - Ctrl-click or Shift-click to pick several." />
         <MenuItem Header="Back up _all" Command="{Binding BackupAllCommand}" />
         <MenuItem Header="S_top" Command="{Binding StopCommand}"
                   ToolTip="Stops after the file being copied. Anything cut short is marked INCOMPLETE." />
@@ -117,8 +119,10 @@
           <Button Content="Diagnose network" Command="{Binding DiagnoseNetworkCommand}"
                   ToolTip="Opens NetControl on this robot's address." />
         </StackPanel>
-        <TextBlock Style="{StaticResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Right"
-                   Text="Read-only: RobControl never writes to a controller." />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+          <TextBlock Text="{Binding TargetText}" FontWeight="SemiBold" Margin="0,0,14,0" />
+          <TextBlock Style="{StaticResource Muted}" Text="Read-only: RobControl never writes to a controller." />
+        </StackPanel>
       </DockPanel>
     </Border>
 
@@ -137,7 +141,9 @@
                   IsReadOnly="True"
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
-                  SelectionMode="Single"
+                  SelectionMode="Extended"
+                  SelectionChanged="OnRobotSelectionChanged"
+                  ToolTip="Ctrl-click or Shift-click to select several robots: Probe, Back up and everything on the Trends tab act on all of them."
                   HeadersVisibility="Column"
                   GridLinesVisibility="Horizontal"
                   RowHeaderWidth="0"
@@ -342,6 +348,108 @@
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>
+              </Grid>
+            </DockPanel>
+          </TabItem>
+
+          <TabItem x:Name="TrendsTab" Header="Trends">
+            <DockPanel Margin="8" DataContext="{Binding Trend}">
+
+              <!-- What is being acted on, and the controls. Everything here applies to every robot
+                   selected in the list on the left. -->
+              <StackPanel DockPanel.Dock="Top" Margin="2,0,0,6">
+                <TextBlock Style="{StaticResource Muted}" TextTrimming="CharacterEllipsis">
+                  <Run Text="Acting on: " /><Run Text="{Binding Targets, Mode=OneWay}" FontWeight="SemiBold" />
+                </TextBlock>
+                <DockPanel Margin="0,6,0,0">
+                  <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddCommand}" Margin="6,0,0,0" />
+                  <TextBox Text="{Binding AddText, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}"
+                           ToolTip="As on the pendant, comma separated, ranges allowed: R[1-10], DI[1..8], GI[1], $TIMER[1].$TIMER_VAL. Added to every selected robot." />
+                </DockPanel>
+                <WrapPanel Margin="0,6,0,0">
+                  <Button Content="Read now" Command="{Binding ReadNowCommand}"
+                          ToolTip="One read of every signal on every selected robot. Nothing is stored." />
+                  <Border Style="{StaticResource ToolbarSeparator}" />
+                  <TextBlock Text="Every" VerticalAlignment="Center" Margin="0,0,6,0" />
+                  <TextBox Width="44" Text="{Binding IntervalSeconds, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}"
+                           ToolTip="Seconds between polls, per robot. Never faster than 2 s." />
+                  <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,8,0" />
+                  <Button Content="Start recording" Style="{StaticResource PrimaryButton}" Command="{Binding StartCommand}"
+                          ToolTip="Records every selected robot at once, each on its own loop. Only changes are stored, plus one value a minute." />
+                  <Button Content="Stop" Command="{Binding StopCommand}" ToolTip="Stops the selected robots." />
+                  <Button Content="Stop all" Command="{Binding StopAllCommand}" />
+                  <Border Style="{StaticResource ToolbarSeparator}" />
+                  <Button Content="Remove signal" Command="{Binding RemoveCommand}" />
+                  <Button Content="Export CSV" Command="{Binding ExportCommand}"
+                          ToolTip="The plotted signals, in the window shown, one row per stored sample." />
+                </WrapPanel>
+                <TextBlock Style="{StaticResource Muted}" Margin="0,6,0,0" Text="{Binding Status}" TextWrapping="Wrap" />
+              </StackPanel>
+
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="2*" MinHeight="90" />
+                  <RowDefinition Height="6" />
+                  <RowDefinition Height="3*" MinHeight="140" />
+                </Grid.RowDefinitions>
+
+                <DataGrid Grid.Row="0"
+                          ItemsSource="{Binding Rows}"
+                          SelectedItem="{Binding SelectedSignal}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          SelectionMode="Single"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal"
+                          RowHeaderWidth="0"
+                          BorderThickness="0"
+                          VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="Plot" Width="38">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="{x:Type vm:SignalRowViewModel}">
+                          <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    IsChecked="{Binding IsPlotted, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="" Width="22" IsReadOnly="True">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="{x:Type vm:SignalRowViewModel}">
+                          <Ellipse Width="9" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Fill="{Binding State, Converter={StaticResource ReadinessBrush}}"
+                                   ToolTip="{Binding Problem}" />
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Robot" Width="90" IsReadOnly="True" Binding="{Binding RobotName, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Signal" Width="130" IsReadOnly="True" Binding="{Binding Address, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="Value" Width="90" IsReadOnly="True" Binding="{Binding Value, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="Read" Width="65" IsReadOnly="True" Binding="{Binding ReadAt, Mode=OneWay}" />
+                    <DataGridTextColumn Header="From" Width="80" IsReadOnly="True" Binding="{Binding Source, Mode=OneWay}" ElementStyle="{StaticResource Muted}" />
+                    <DataGridTemplateColumn Header="Problem" Width="*" IsReadOnly="True">
+                      <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate DataType="{x:Type vm:SignalRowViewModel}">
+                          <TextBlock Style="{StaticResource MutedWarning}" Text="{Binding Problem}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Problem}" />
+                        </DataTemplate>
+                      </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                  </DataGrid.Columns>
+                </DataGrid>
+
+                <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" />
+
+                <DockPanel Grid.Row="2">
+                  <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,2,0,4">
+                    <TextBlock Text="Window" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox Width="90" ItemsSource="{x:Static vm:TrendViewModel.Windows}" SelectedItem="{Binding Window}" />
+                    <Button Content="Refresh" Command="{Binding RefreshChartCommand}" Margin="8,0,0,0" />
+                  </StackPanel>
+                  <Border BorderBrush="{DynamicResource line}" BorderThickness="1" CornerRadius="{DynamicResource corner-sm}" ClipToBounds="True">
+                    <views:TrendChart Series="{Binding Series}" From="{Binding From}" To="{Binding To}" />
+                  </Border>
+                </DockPanel>
               </Grid>
             </DockPanel>
           </TabItem>

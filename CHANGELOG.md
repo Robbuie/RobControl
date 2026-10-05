@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0 - trending, and many robots at once
+
+- **Trending** of registers, I/O and system variables. Type signals as on the pendant -
+  `R[1-10], DI[1..8], GO[1], $TIMER[1].$TIMER_VAL` - and they are added to every selected robot.
+  **Read now** reads them once; **Start recording** polls every robot at once (each on its own loop,
+  one request at a time per controller, never faster than every 2 s) and stores only changes plus a
+  value a minute. A chart overlays every plotted signal, with on/off I/O in lanes underneath, over
+  5 minutes to 7 days; **Export CSV** writes what is plotted.
+- Registers come from one fetch of `NUMREG.VA`, I/O from one fetch of `IOSTATE.DG`, system
+  variables from KCL `SHOW VAR` (one each). A robot with KCL locked still trends its registers and I/O.
+- **Multi-select** in the robot list (Ctrl/Shift-click): Probe, Back up and the whole Trends tab act on
+  every selected robot.
+- A robot that stops answering is backed off up to a minute, and comes back on its own.
+- Samples older than 30 days are pruned (`trendRetentionDays` in `robcontrol.json`). Starting and
+  stopping a recording is in the event log for good.
+- `robotsim --animate` makes registers, I/O and a timer move, for trying all of this without a robot.
+
 ## 0.1.0 - first build, no robot yet
 
 The foundation, written and tested against a simulated controller. Nothing here has met a real

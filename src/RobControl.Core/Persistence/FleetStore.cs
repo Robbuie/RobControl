@@ -7,6 +7,7 @@ using RobControl.Core.Diagnostics;
 using RobControl.Core.Events;
 using RobControl.Core.Robots;
 using RobControl.Core.Transports.Ftp;
+using RobControl.Core.Trending;
 
 namespace RobControl.Core.Persistence;
 
@@ -21,7 +22,7 @@ namespace RobControl.Core.Persistence;
 /// <para>Implements <see cref="IEventSink"/> and, per that contract, never throws from
 /// <see cref="Record"/>: a backup must not fail because its log row could not be written.</para>
 /// </summary>
-public sealed class FleetStore : IEventSink, IDisposable
+public sealed class FleetStore : IEventSink, ITrendStore, IDisposable
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -261,6 +262,169 @@ public sealed class FleetStore : IEventSink, IDisposable
             }
 
             return events;
+        }
+    }
+
+    // ------------------------------------------------------------------ trending
+
+    public IReadOnlyList<TrendSignal> TrendSignals(long? robotId = null)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = robotId is null
+                ? "SELECT Id, RobotId, Address, Label FROM TrendSignal ORDER BY RobotId, Id"
+                : "SELECT Id, RobotId, Address, Label FROM TrendSignal WHERE RobotId = $robot ORDER BY Id";
+            if (robotId is not null)
+            {
+                command.Parameters.AddWithValue("$robot", robotId.Value);
+            }
+
+            using SqliteDataReader reader = command.ExecuteReader();
+            var signals = new List<TrendSignal>();
+            while (reader.Read())
+            {
+                // A row this build cannot parse (hand-edited, or from a newer build) is skipped, not fatal.
+                if (SignalAddress.TryParse(reader.GetString(2), out SignalAddress? address, out _))
+                {
+                    signals.Add(new TrendSignal(reader.GetInt64(0), reader.GetInt64(1), address!, reader.IsDBNull(3) ? null : reader.GetString(3)));
+                }
+            }
+
+            return signals;
+        }
+    }
+
+    /// <summary>Adds signals to a robot. Ones it already has are left alone. Returns the robot's full list.</summary>
+    public IReadOnlyList<TrendSignal> AddSignals(Robot robot, IEnumerable<SignalAddress> addresses, string? label = null)
+    {
+        ArgumentNullException.ThrowIfNull(robot);
+        ArgumentNullException.ThrowIfNull(addresses);
+        lock (_gate)
+        {
+            using SqliteTransaction transaction = _connection.BeginTransaction();
+            foreach (SignalAddress address in addresses)
+            {
+                using SqliteCommand command = _connection.CreateCommand();
+                command.CommandText = """
+                    INSERT INTO TrendSignal (RobotId, Address, Label, CreatedUtc) VALUES ($robot, $address, $label, $now)
+                    ON CONFLICT (RobotId, Address) DO NOTHING
+                    """;
+                command.Parameters.AddWithValue("$robot", robot.Id);
+                command.Parameters.AddWithValue("$address", address.Text);
+                command.Parameters.AddWithValue("$label", (object?)label ?? DBNull.Value);
+                command.Parameters.AddWithValue("$now", SqlTime.ToSql(DateTimeOffset.UtcNow));
+                command.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+
+        return TrendSignals(robot.Id);
+    }
+
+    public void SetSignalLabel(TrendSignal signal, string? label)
+    {
+        ArgumentNullException.ThrowIfNull(signal);
+        lock (_gate)
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = "UPDATE TrendSignal SET Label = $label WHERE Id = $id";
+            command.Parameters.AddWithValue("$label", string.IsNullOrWhiteSpace(label) ? DBNull.Value : label.Trim());
+            command.Parameters.AddWithValue("$id", signal.Id);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Removes a signal and its samples.</summary>
+    public void RemoveSignal(TrendSignal signal)
+    {
+        ArgumentNullException.ThrowIfNull(signal);
+        lock (_gate)
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = "DELETE FROM TrendSample WHERE SignalId = $id; DELETE FROM TrendSignal WHERE Id = $id;";
+            command.Parameters.AddWithValue("$id", signal.Id);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Stores a batch in one transaction. Never throws - see <see cref="ITrendStore"/>.</summary>
+    public bool Append(IReadOnlyList<TrendSample> samples)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        try
+        {
+            lock (_gate)
+            {
+                using SqliteTransaction transaction = _connection.BeginTransaction();
+                using SqliteCommand command = _connection.CreateCommand();
+                command.CommandText = "INSERT INTO TrendSample (SignalId, UtcMs, Value) VALUES ($signal, $utc, $value)";
+                SqliteParameter signal = command.Parameters.Add("$signal", SqliteType.Integer);
+                SqliteParameter utc = command.Parameters.Add("$utc", SqliteType.Integer);
+                SqliteParameter value = command.Parameters.Add("$value", SqliteType.Real);
+                foreach (TrendSample sample in samples)
+                {
+                    signal.Value = sample.SignalId;
+                    utc.Value = sample.Utc.ToUnixTimeMilliseconds();
+                    value.Value = sample.Value;
+                    command.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is SqliteException or InvalidOperationException or ObjectDisposedException)
+        {
+            _trace.Error("Could not store trend samples.", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Samples of one signal between two times, oldest first - plus the last sample before
+    /// <paramref name="from"/>, so a value that has not changed for hours still draws from the left
+    /// edge of the chart instead of starting at its next change.
+    /// </summary>
+    public IReadOnlyList<TrendPoint> Samples(long signalId, DateTimeOffset from, DateTimeOffset to, int limit = 200_000)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = """
+                SELECT UtcMs, Value FROM (
+                    SELECT UtcMs, Value FROM TrendSample WHERE SignalId = $id AND UtcMs < $from ORDER BY UtcMs DESC LIMIT 1)
+                UNION ALL
+                SELECT UtcMs, Value FROM (
+                    SELECT UtcMs, Value FROM TrendSample WHERE SignalId = $id AND UtcMs >= $from AND UtcMs <= $to ORDER BY UtcMs LIMIT $limit)
+                ORDER BY UtcMs
+                """;
+            command.Parameters.AddWithValue("$id", signalId);
+            command.Parameters.AddWithValue("$from", from.ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$to", to.ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$limit", limit);
+            using SqliteDataReader reader = command.ExecuteReader();
+            var points = new List<TrendPoint>();
+            while (reader.Read())
+            {
+                points.Add(new TrendPoint(DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(0)), reader.GetDouble(1)));
+            }
+
+            return points;
+        }
+    }
+
+    /// <summary>Deletes samples older than <paramref name="before"/>. Returns how many went.</summary>
+    public int PruneSamples(DateTimeOffset before)
+    {
+        lock (_gate)
+        {
+            using SqliteCommand command = _connection.CreateCommand();
+            command.CommandText = "DELETE FROM TrendSample WHERE UtcMs < $before";
+            command.Parameters.AddWithValue("$before", before.ToUnixTimeMilliseconds());
+            return command.ExecuteNonQuery();
         }
     }
 

@@ -13,6 +13,7 @@ using RobControl.Core.Diagnostics;
 using RobControl.Core.Events;
 using RobControl.Core.Persistence;
 using RobControl.Core.Robots;
+using RobControl.Core.Trending;
 
 namespace RobControl.App.ViewModels;
 
@@ -45,8 +46,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _running;
     private DateTimeOffset? _nextScheduled;
     private bool _eventsForSelectedOnly;
+    private readonly TrendRecorder _recorder;
+    private IReadOnlyList<RobotRowViewModel> _selectedRobots = [];
 
-    public MainViewModel(IUiDispatcher ui, FleetStore store, UserSettings settings, string tool, ITraceLog? trace = null)
+    public MainViewModel(IUiDispatcher ui, FleetStore store, UserSettings settings, string tool, ITraceLog? trace = null, TrendRecorder? recorder = null)
     {
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -54,13 +57,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _tool = tool;
         _trace = trace ?? NullTraceLog.Instance;
         _archive = new BackupArchive(settings.ArchiveRoot);
+        _recorder = recorder ?? new TrendRecorder(store, store);
+        Trend = new TrendViewModel(ui, store, _recorder, () => Targets);
 
         AddRobotCommand = new RelayCommand(AddRobot);
         EditRobotCommand = new RelayCommand(EditRobot, () => Selected is { IsBusy: false });
         RemoveRobotCommand = new RelayCommand(RemoveRobot, () => Selected is { IsBusy: false });
-        ProbeSelectedCommand = new AsyncRelayCommand(ProbeSelectedAsync, () => Selected is { IsBusy: false });
+        ProbeSelectedCommand = new AsyncRelayCommand(ProbeSelectedAsync, () => Targets.Any(r => !r.IsBusy));
         ProbeAllCommand = new AsyncRelayCommand(ProbeAllAsync, () => Robots.Count > 0 && !IsBusy);
-        BackupSelectedCommand = new AsyncRelayCommand(BackupSelectedAsync, () => Selected is { IsBusy: false });
+        BackupSelectedCommand = new AsyncRelayCommand(BackupSelectedAsync, () => Targets.Any(r => !r.IsBusy));
         BackupAllCommand = new AsyncRelayCommand(BackupAllAsync, () => Robots.Count > 0 && !IsBusy);
         StopCommand = new RelayCommand(Stop, () => IsBusy);
         CompareCommand = new RelayCommand(CompareChecked, () => Selected is { Backups.Count: >= 2 });
@@ -74,6 +79,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _store.EventRecorded += OnEventRecorded;
         LoadRobots();
         ReloadEvents();
+        Trend.Reload();
     }
 
     // ------------------------------------------------------------------ the view's delegates
@@ -117,9 +123,43 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     ReloadEvents();
                 }
 
+                if (_selectedRobots.Count == 0)
+                {
+                    Trend.Reload();
+                }
+
+                OnPropertyChanged(nameof(TargetText));
+
                 RaiseCanExecute();
             }
         }
+    }
+
+    /// <summary>
+    /// The robots the toolbar acts on: every row selected in the list (Ctrl/Shift-click), or the one
+    /// in focus when the view has not said otherwise.
+    /// </summary>
+    public IReadOnlyList<RobotRowViewModel> Targets =>
+        _selectedRobots.Count > 0 ? _selectedRobots : Selected is { } one ? [one] : [];
+
+    public string TargetText => Targets.Count switch
+    {
+        0 => "No robot selected",
+        1 => Targets[0].Name,
+        _ => string.Create(CultureInfo.CurrentCulture, $"{Targets.Count} robots selected"),
+    };
+
+    public TrendViewModel Trend { get; }
+
+    /// <summary>Called by the view when the list's selection changes - a DataGrid's SelectedItems cannot be bound.</summary>
+    public void SetSelection(IEnumerable<RobotRowViewModel> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        _selectedRobots = [.. rows];
+        OnPropertyChanged(nameof(Targets));
+        OnPropertyChanged(nameof(TargetText));
+        Trend.Reload();
+        RaiseCanExecute();
     }
 
     public CompareViewModel? Compare
@@ -243,6 +283,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             while (await timer.WaitForNextTickAsync(_shutdown.Token).ConfigureAwait(false))
             {
+                PruneTrends();
+
                 if (_settings.ScheduleHours > 0 && _nextScheduled is { } due && DateTimeOffset.UtcNow >= due)
                 {
                     _ui.Post(() =>
@@ -264,9 +306,50 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Redraws the chart every few seconds while anything is recording. Started by AppHost beside the
+    /// schedule loop.
+    /// </summary>
+    public async Task RunChartRefreshAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_shutdown.Token).ConfigureAwait(false))
+            {
+                if (_recorder.Recording.Count > 0)
+                {
+                    _ui.Post(Trend.RefreshChart);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>Drops samples older than the retention setting. Cheap; runs with the schedule check.</summary>
+    public void PruneTrends()
+    {
+        try
+        {
+            int removed = _store.PruneSamples(DateTimeOffset.UtcNow.AddDays(-_settings.TrendRetentionDays));
+            if (removed > 0)
+            {
+                _trace.Info($"Pruned {removed} trend samples older than {_settings.TrendRetentionDays} days.");
+            }
+        }
+        catch (Exception ex) when (ex is RobControlException or InvalidOperationException)
+        {
+            _trace.Warn("Could not prune trend samples.", ex);
+        }
+    }
+
     public void Dispose()
     {
         _store.EventRecorded -= OnEventRecorded;
+        Trend.Dispose();
+        _recorder.StopAllAsync().GetAwaiter().GetResult();
         _shutdown.Cancel();
         _operation?.Cancel();
         _shutdown.Dispose();
@@ -366,10 +449,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (Confirm?.Invoke($"Remove {row.Robot.Describe()} from the list?\n\nIts backups stay on disk in {_archive.RobotFolder(row.Robot)}, and its rows stay in the event log.") != true)
+        if (Confirm?.Invoke($"Remove {row.Robot.Describe()} from the list?\n\nIts backups stay on disk in {_archive.RobotFolder(row.Robot)}, and its rows stay in the event log. Its trend signals and recorded samples are deleted.") != true)
         {
             return;
         }
+
+        _recorder.StopAsync(row.Robot.Id).GetAwaiter().GetResult();
 
         _store.Remove(row.Robot);
         _store.Info(EventCategory.App, row.Robot, "Robot removed from the list. Backups left in place.");
@@ -380,13 +465,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     // ------------------------------------------------------------------ probe
 
-    private async Task ProbeSelectedAsync()
-    {
-        if (Selected is { } row)
-        {
-            await ProbeAsync([row]).ConfigureAwait(true);
-        }
-    }
+    private Task ProbeSelectedAsync() => ProbeAsync(Targets);
 
     private Task ProbeAllAsync() => ProbeAsync([.. Robots]);
 
@@ -431,13 +510,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     // ------------------------------------------------------------------ backup
 
-    private async Task BackupSelectedAsync()
-    {
-        if (Selected is { } row)
-        {
-            await BackupAsync([row]).ConfigureAwait(true);
-        }
-    }
+    private Task BackupSelectedAsync() => BackupAsync(Targets);
 
     private Task BackupAllAsync() => BackupAsync([.. Robots]);
 
@@ -706,6 +779,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EditRobotCommand.NotifyCanExecuteChanged();
         RemoveRobotCommand.NotifyCanExecuteChanged();
         ProbeSelectedCommand.NotifyCanExecuteChanged();
+        Trend.ReadNowCommand.NotifyCanExecuteChanged();
         ProbeAllCommand.NotifyCanExecuteChanged();
         BackupSelectedCommand.NotifyCanExecuteChanged();
         BackupAllCommand.NotifyCanExecuteChanged();

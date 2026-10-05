@@ -39,6 +39,8 @@ public sealed class AppHost : IDisposable
     public async Task StartAsync()
     {
         _ = Task.Run(ViewModel.RunScheduleAsync);
+        _ = Task.Run(ViewModel.RunChartRefreshAsync);
+        _ = Task.Run(ViewModel.PruneTrends);
 
         AppSettings settings = AppSettings.Load(AppPaths.SettingsFile, _trace);
         UpdateResult result = await UpdateCheck.RunAsync(settings, BuildInfo.Version, trace: _trace).ConfigureAwait(true);

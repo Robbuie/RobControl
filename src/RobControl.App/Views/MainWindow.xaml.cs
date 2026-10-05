@@ -38,6 +38,8 @@ public partial class MainWindow : Window
             old.ShowMessage = null;
             old.PickFolder = null;
             old.OpenFolder = null;
+            old.Trend.PickSaveFile = null;
+            old.Trend.ShowMessage = null;
         }
 
         if (e.NewValue is MainViewModel viewModel)
@@ -51,6 +53,8 @@ public partial class MainWindow : Window
                 MessageBox.Show(this, message, "RobControl", MessageBoxButton.OK, MessageBoxImage.Information);
             viewModel.PickFolder = PickFolder;
             viewModel.OpenFolder = folder => Shell.Open(this, folder);
+            viewModel.Trend.PickSaveFile = PickCsvFile;
+            viewModel.Trend.ShowMessage = viewModel.ShowMessage;
         }
     }
 
@@ -71,7 +75,32 @@ public partial class MainWindow : Window
         return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
     }
 
+    private string? PickCsvFile(string suggested)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export trend",
+            FileName = suggested,
+            Filter = "CSV (*.csv)|*.csv|All files (*.*)|*.*",
+            DefaultExt = ".csv",
+        };
+
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+    }
+
     private void OnCompareOpened(object? sender, EventArgs e) => ChangesTab.IsSelected = true;
+
+    /// <summary>
+    /// The list allows Ctrl/Shift multi-select. SelectedItems cannot be bound, so the view hands the
+    /// selection over here; Probe, Back up and the Trends tab then act on every selected robot.
+    /// </summary>
+    private void OnRobotSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is DataGrid grid && ViewModel is { } viewModel)
+        {
+            viewModel.SetSelection(grid.SelectedItems.OfType<RobotRowViewModel>());
+        }
+    }
 
     private void OnRobotDoubleClick(object sender, MouseButtonEventArgs e)
     {

@@ -16,6 +16,8 @@ before changing anything that sends a packet.**
 | **Probe** | What the controller is - generation, software version, application, arm, F-number - and which ways in are open: FTP, diagnostic files, KCL. When something is locked it says where on the pendant to change it, and does not change it itself. |
 | **Compare** | Any two backups of a robot: which files changed, were added or removed, and the line diff of the ASCII listings (`.LS`, `.VA`). |
 | **Schedule** | Fleet backups every 4/8/12/24 hours while the app is open. |
+| **Trend** | Registers, I/O and system variables, typed as on the pendant (`R[1-10], DI[1..8], $TIMER[1].$TIMER_VAL`). Read once, or record several robots at once and overlay them on one chart. Only changes are stored; CSV export. |
+| **Many at once** | Ctrl/Shift-click robots in the list and Probe, Back up and Trends act on all of them. |
 | **Event log** | Every probe and backup, append-only at the database. |
 | **Diagnose network** | Opens [NetControl](https://github.com/Robbuie/NetControl) on a robot that does not answer. |
 
@@ -26,12 +28,14 @@ moves, starts or deletes anything on a controller.
 ## Trying it without a robot
 
 ```powershell
-dotnet run --project src/RobControl.RobotSim -- tests/Fixtures/synthetic-r30ibplus-v940-spottool
+dotnet run --project src/RobControl.RobotSim -- tests/Fixtures/synthetic-r30ibplus-v940-spottool --animate
 # FTP 127.0.0.1:2121, HTTP 127.0.0.1:8080
 ```
 
 Then in RobControl add a robot at `127.0.0.1` with FTP port `2121` and web port `8080`, and probe
-it or back it up. The synthetic profile is hand-written; see `tests/Fixtures/README.md`.
+it or back it up. With `--animate`, `R[1-4]`, `DI[1]`, `DO[1]`, `GI[1]` and `$TIMER[1].$TIMER_VAL`
+move, so the Trends tab has something to draw. Start a second simulator on other ports to try
+several robots at once. The synthetic profile is hand-written; see `tests/Fixtures/README.md`.
 
 ## First contact with a real robot
 

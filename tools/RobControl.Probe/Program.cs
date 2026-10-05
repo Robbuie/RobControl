@@ -6,6 +6,7 @@ using RobControl.Core.Controllers;
 using RobControl.Core.Kcl;
 using RobControl.Core.Transports.Ftp;
 using RobControl.Core.Transports.Http;
+using RobControl.Core.Trending;
 using RobControl.RobotSim;
 
 // robcontrol-probe <address> [--user anonymous] [--password ""] [--ftp-port 21] [--http-port 80] [--out folder]
@@ -143,7 +144,7 @@ Say(string.Empty);
 Say("== Web server ==");
 using (var web = new ControllerWebClient(address, httpPort))
 {
-    foreach (string name in new[] { "SUMMARY.DG", "ERRALL.LS", "IOSTATE.DG", "PRGSTATE.DG", "CURPOS.DG", "VERSION.DG" })
+    foreach (string name in new[] { "SUMMARY.DG", "ERRALL.LS", "IOSTATE.DG", "NUMREG.VA", "PRGSTATE.DG", "CURPOS.DG", "VERSION.DG" })
     {
         try
         {
@@ -159,6 +160,16 @@ using (var web = new ControllerWebClient(address, httpPort))
                 }
 
                 identity = identity.Merge(ControllerIdentityParser.Parse(exchange.Text));
+
+                // What trending would make of it - the formats it depends on are exactly these two.
+                if (name == RobotSampler.RegisterFile)
+                {
+                    Say($"  trending parser: {RegisterFileParser.Parse(exchange.Text).Count} registers recognised");
+                }
+                else if (name == RobotSampler.IoFile)
+                {
+                    Say($"  trending parser: {IoStateParser.Parse(exchange.Text).Count} I/O points recognised");
+                }
             }
         }
         catch (HttpResourceLockedException ex)

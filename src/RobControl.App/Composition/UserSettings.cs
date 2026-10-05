@@ -30,6 +30,9 @@ public sealed record UserSettings
     /// <summary>Also copy <c>fr:</c> (FROM). Off by default: it can be large, and md: is what matters.</summary>
     public bool IncludeFrom { get; init; }
 
+    /// <summary>Trend samples older than this are pruned. Recording sessions stay in the event log regardless.</summary>
+    public int TrendRetentionDays { get; init; } = 30;
+
     public static string FilePath => Path.Combine(AppPaths.Data, "robcontrol.json");
 
     /// <summary>Never throws: a file nobody can read gives the defaults, and the log says why.</summary>
@@ -46,6 +49,7 @@ public sealed record UserSettings
                     {
                         Concurrency = Math.Clamp(loaded.Concurrency, 1, 8),
                         ScheduleHours = Math.Clamp(loaded.ScheduleHours, 0, 168),
+                        TrendRetentionDays = Math.Clamp(loaded.TrendRetentionDays, 1, 3650),
                         ArchiveRoot = string.IsNullOrWhiteSpace(loaded.ArchiveRoot) ? new UserSettings().ArchiveRoot : loaded.ArchiveRoot,
                     };
                 }

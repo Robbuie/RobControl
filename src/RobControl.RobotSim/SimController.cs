@@ -42,6 +42,16 @@ public sealed class SimController : IAsyncDisposable
 
     public SimFaults Faults { get; } = new();
 
+    /// <summary>
+    /// Files on md: whose content is supplied live rather than read from the profile folder - what
+    /// <see cref="SimAnimator"/> and the trending tests use to make values change between polls.
+    /// Keyed by upper-case file name. Served to both FTP RETR and HTTP GET.
+    /// </summary>
+    public ConcurrentDictionary<string, byte[]> MdOverrides { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>KCL commands answered live, same idea. The value is the text that goes inside &lt;XMP&gt;.</summary>
+    public ConcurrentDictionary<string, string> KclOverrides { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Every FTP command line received, password masked, in order.</summary>
     public ConcurrentQueue<string> FtpCommands { get; } = new();
 
@@ -255,7 +265,8 @@ public sealed class SimController : IAsyncDisposable
         {
             string name = arg.Trim();
             string path = Path.Combine(folder, name);
-            if (Faults.RefuseFiles.ContainsKey(name) || name.AsSpan().IndexOfAny("/\\") >= 0 || !File.Exists(path))
+            bool overridden = device.StartsWith("md", StringComparison.OrdinalIgnoreCase) && MdOverrides.ContainsKey(name);
+            if (Faults.RefuseFiles.ContainsKey(name) || name.AsSpan().IndexOfAny("/\\") >= 0 || (!overridden && !File.Exists(path)))
             {
                 await reply("550 " + name + ": File not found.").ConfigureAwait(false);
                 return true;
@@ -270,7 +281,9 @@ public sealed class SimController : IAsyncDisposable
                 return false;
             }
 
-            payload = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            payload = overridden && MdOverrides.TryGetValue(name, out byte[]? live)
+                ? live
+                : await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -356,6 +369,11 @@ public sealed class SimController : IAsyncDisposable
             }
 
             string name = path[4..];
+            if (MdOverrides.TryGetValue(name, out byte[]? live))
+            {
+                return (200, "OK", "text/plain", live);
+            }
+
             string? folder = _profile.DeviceFolder("md:");
             string file = folder is null || name.AsSpan().IndexOfAny("/\\") >= 0 ? string.Empty : Path.Combine(folder, name);
             return File.Exists(file)
@@ -371,7 +389,9 @@ public sealed class SimController : IAsyncDisposable
             }
 
             string command = string.Join(' ', path[5..].Split(' ', StringSplitOptions.RemoveEmptyEntries));
-            string page = _profile.Kcl.TryGetValue(command, out string? canned)
+            string page = KclOverrides.TryGetValue(command, out string? liveText)
+                ? $"<html><body><XMP>{liveText}</XMP></body></html>"
+                : _profile.Kcl.TryGetValue(command, out string? canned)
                 ? canned
                 : $"<html><body><XMP>KCL-012 Command not recognised by the simulator: {command}</XMP></body></html>";
             return (200, "OK", "text/html", Wire.GetBytes(page));

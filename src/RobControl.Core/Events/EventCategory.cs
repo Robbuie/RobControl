@@ -17,4 +17,7 @@ public enum EventCategory
 
     /// <summary>A diagnostic file fetched over HTTP.</summary>
     Http,
+
+    /// <summary>Recording started or stopped, or a one-off read of signals.</summary>
+    Trend,
 }
