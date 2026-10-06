@@ -48,9 +48,12 @@ public partial class App : Application
             });
         });
 
+        // RobControl.exe --site "Plant 3" - opens that site instead of the one used last.
+        string? site = ArgumentAfter(e.Args, "--site");
+
         try
         {
-            _host = new AppHost(new WpfDispatcher(Dispatcher), _trace);
+            _host = new AppHost(new WpfDispatcher(Dispatcher), _trace, site);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -60,14 +63,17 @@ public partial class App : Application
         }
 
         var shell = new MainWindow { DataContext = _host.ViewModel };
+        AppHost host = _host;
+
+        // A site switch builds a new view model on the other site's database; the window rebinds to it.
+        host.ViewModelChanged += (_, _) => shell.DataContext = host.ViewModel;
         shell.Show();
 
-        // RobControl.exe --robot 10.20.1.54 - how NetControl's "Open in RobControl" lands here.
-        string[] args = e.Args;
-        int at = Array.FindIndex(args, a => string.Equals(a, "--robot", StringComparison.OrdinalIgnoreCase));
-        if (at >= 0 && at + 1 < args.Length)
+        // RobControl.exe --robot 10.20.1.54 - how NetControl's "Open in RobControl" lands here. It
+        // looks in the open site only: an address means nothing without the plant it is at.
+        if (ArgumentAfter(e.Args, "--robot") is { } robot)
         {
-            _host.ViewModel.SelectByAddress(args[at + 1]);
+            _host.ViewModel.SelectByAddress(robot);
         }
 
         UpdateApplier.SweepLeftovers(BuildInfo.ExecutablePath, AppPaths.Updates, _trace);
@@ -87,6 +93,12 @@ public partial class App : Application
         _trace = null;
 
         base.OnExit(e);
+    }
+
+    private static string? ArgumentAfter(string[] args, string name)
+    {
+        int at = Array.FindIndex(args, a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
+        return at >= 0 && at + 1 < args.Length && !string.IsNullOrWhiteSpace(args[at + 1]) ? args[at + 1] : null;
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

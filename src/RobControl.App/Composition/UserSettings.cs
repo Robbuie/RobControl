@@ -1,39 +1,73 @@
 // UseWPF drops System.IO from the implicit usings; this file is all paths.
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using RobControl.Core.Diagnostics;
+using RobControl.Core.Sites;
 
 namespace RobControl.App.Composition;
 
 /// <summary>
-/// What the person chose in the app: where backups go, how many robots at once, how often.
+/// What this PC remembers between runs that belongs to no one site: which site was open last.
 ///
 /// <para>Its own file, <c>%LOCALAPPDATA%\RobControl\robcontrol.json</c>, and not
-/// <c>settings.json</c>: that one is site configuration (the update source) that the app must never
-/// rewrite, exactly as in NetControl. This one the app writes every time something changes.</para>
+/// <c>settings.json</c>: that one is machine configuration (the update source) that the app must
+/// never rewrite, exactly as in NetControl. This one the app writes whenever the site changes.</para>
+///
+/// <para><b>Before 0.3.0 the archive folder, schedule and the rest lived here too.</b> They belong to
+/// a site now (<see cref="SiteSettings"/>). The old properties are still read, once, to make the
+/// first site out of what the person had already chosen, and are left out of the file after that.</para>
 /// </summary>
 public sealed record UserSettings
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
-    /// <summary>The archive root. Defaults to Documents\RobControl Backups.</summary>
-    public string ArchiveRoot { get; init; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments, Environment.SpecialFolderOption.DoNotVerify),
-        "RobControl Backups");
+    /// <summary>The key (folder name) of the site open last time. Null on a first run.</summary>
+    public string? Site { get; init; }
 
-    /// <summary>Robots backed up at the same time. Never more than one session per robot regardless.</summary>
-    public int Concurrency { get; init; } = 2;
+    // ---------------------------------------------------------------- 0.2.0 and earlier, read once
 
-    /// <summary>Hours between automatic fleet backups while the app is open. Zero is off.</summary>
-    public int ScheduleHours { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ArchiveRoot { get; init; }
 
-    /// <summary>Also copy <c>fr:</c> (FROM). Off by default: it can be large, and md: is what matters.</summary>
-    public bool IncludeFrom { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Concurrency { get; init; }
 
-    /// <summary>Trend samples older than this are pruned. Recording sessions stay in the event log regardless.</summary>
-    public int TrendRetentionDays { get; init; } = 30;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ScheduleHours { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IncludeFrom { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TrendRetentionDays { get; init; }
 
     public static string FilePath => Path.Combine(AppPaths.Data, "robcontrol.json");
+
+    /// <summary>
+    /// The site made from a 0.2.0 robot list, carrying over whatever 0.2.0 had been told.
+    ///
+    /// <para>The archive folder is the one that matters: it has to be <b>exactly</b> where 0.2.0 put
+    /// the backups, or the robots' history would look empty. A folder somebody chose is kept; an
+    /// unset one is 0.2.0's own default, <paramref name="oldDefaultArchive"/> - not the new per-site
+    /// subfolder, which nothing has been written to yet.</para>
+    /// </summary>
+    public SiteSettings ToFirstSite(string name, string oldDefaultArchive)
+    {
+        var defaults = new SiteSettings();
+        return defaults with
+        {
+            Name = name,
+            ArchiveRoot = string.IsNullOrWhiteSpace(ArchiveRoot) ? oldDefaultArchive : ArchiveRoot,
+            Concurrency = Concurrency ?? defaults.Concurrency,
+            ScheduleHours = ScheduleHours ?? defaults.ScheduleHours,
+            IncludeFrom = IncludeFrom ?? defaults.IncludeFrom,
+            TrendRetentionDays = TrendRetentionDays ?? defaults.TrendRetentionDays,
+        };
+    }
+
+    /// <summary>The same settings with the pre-site properties dropped, once they have been carried over.</summary>
+    public UserSettings WithoutLegacy() => new() { Site = Site };
 
     /// <summary>Never throws: a file nobody can read gives the defaults, and the log says why.</summary>
     public static UserSettings Load(ITraceLog? trace = null)
@@ -42,17 +76,7 @@ public sealed record UserSettings
         {
             if (File.Exists(FilePath))
             {
-                UserSettings? loaded = JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(FilePath), Json);
-                if (loaded is not null)
-                {
-                    return loaded with
-                    {
-                        Concurrency = Math.Clamp(loaded.Concurrency, 1, 8),
-                        ScheduleHours = Math.Clamp(loaded.ScheduleHours, 0, 168),
-                        TrendRetentionDays = Math.Clamp(loaded.TrendRetentionDays, 1, 3650),
-                        ArchiveRoot = string.IsNullOrWhiteSpace(loaded.ArchiveRoot) ? new UserSettings().ArchiveRoot : loaded.ArchiveRoot,
-                    };
-                }
+                return JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(FilePath), Json) ?? new UserSettings();
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)

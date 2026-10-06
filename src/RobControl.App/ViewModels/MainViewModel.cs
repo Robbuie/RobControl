@@ -13,6 +13,7 @@ using RobControl.Core.Diagnostics;
 using RobControl.Core.Events;
 using RobControl.Core.Persistence;
 using RobControl.Core.Robots;
+using RobControl.Core.Sites;
 using RobControl.Core.Trending;
 
 namespace RobControl.App.ViewModels;
@@ -23,9 +24,13 @@ namespace RobControl.App.ViewModels;
 /// back through <see cref="IUiDispatcher"/>.
 ///
 /// <para><b>What can run at once.</b> One operation per robot (a probe or a backup), and any number
-/// of robots up to <see cref="UserSettings.Concurrency"/> for a fleet backup. A robot that is busy
+/// of robots up to <see cref="SiteSettings.Concurrency"/> for a fleet backup. A robot that is busy
 /// is skipped rather than queued twice - two sessions on one controller is what the Safety section
 /// rules out.</para>
+///
+/// <para><b>One site.</b> A view model is built on one site's database and lives as long as that site
+/// is open. Switching site is asked of <see cref="ISiteHost"/>, which disposes this one and builds
+/// another - nothing in here ever holds two sites' robots at once.</para>
 /// </summary>
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
@@ -33,10 +38,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private readonly IUiDispatcher _ui;
     private readonly FleetStore _store;
+    private readonly ISiteHost _sites;
     private readonly ITraceLog _trace;
     private readonly string _tool;
     private readonly CancellationTokenSource _shutdown = new();
-    private UserSettings _settings;
+    private Site _site;
+    private SiteSettings _settings;
     private BackupArchive _archive;
     private CancellationTokenSource? _operation;
     private RobotRowViewModel? _selected;
@@ -49,14 +56,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TrendRecorder _recorder;
     private IReadOnlyList<RobotRowViewModel> _selectedRobots = [];
 
-    public MainViewModel(IUiDispatcher ui, FleetStore store, UserSettings settings, string tool, ITraceLog? trace = null, TrendRecorder? recorder = null)
+    public MainViewModel(IUiDispatcher ui, FleetStore store, Site site, ISiteHost sites, string tool, ITraceLog? trace = null, TrendRecorder? recorder = null)
     {
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _site = site ?? throw new ArgumentNullException(nameof(site));
+        _sites = sites ?? throw new ArgumentNullException(nameof(sites));
+        _settings = site.Settings;
         _tool = tool;
         _trace = trace ?? NullTraceLog.Instance;
-        _archive = new BackupArchive(settings.ArchiveRoot);
+        _archive = new BackupArchive(_settings.ArchiveRoot);
         _recorder = recorder ?? new TrendRecorder(store, store);
         Trend = new TrendViewModel(ui, store, _recorder, () => Targets);
 
@@ -75,17 +84,32 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OpenArchiveCommand = new RelayCommand(() => OpenFolder?.Invoke(RobotFolderOrRoot()));
         ChooseArchiveCommand = new RelayCommand(ChooseArchive);
         SetScheduleCommand = new RelayCommand<string>(SetSchedule);
+        NewSiteCommand = new RelayCommand(NewSite);
+        EditSiteCommand = new RelayCommand(EditSite);
+        ImportSiteCommand = new RelayCommand(ImportSite);
+        ExportSiteCommand = new RelayCommand(ExportSite);
+        OpenSiteFolderCommand = new RelayCommand(() => OpenFolder?.Invoke(_site.Folder));
 
         _store.EventRecorded += OnEventRecorded;
         LoadRobots();
         ReloadEvents();
         Trend.Reload();
+        ReloadSites();
     }
 
     // ------------------------------------------------------------------ the view's delegates
 
-    /// <summary>Shows the robot dialog. Null in means "add"; null out means cancelled.</summary>
-    public Func<RobotDraft?, RobotDraft?>? EditRobotDialog { get; set; }
+    /// <summary>Shows the robot dialog. A draft with no Id means "add"; null out means cancelled.</summary>
+    public Func<RobotDraft, RobotDraft?>? EditRobotDialog { get; set; }
+
+    /// <summary>Shows the site dialog. The flag is true for a new site; null out means cancelled.</summary>
+    public Func<SiteDraft, bool, SiteDraft?>? EditSiteDialog { get; set; }
+
+    /// <summary>A file picker for a site file to import. Null when cancelled.</summary>
+    public Func<string?>? PickSiteFileToOpen { get; set; }
+
+    /// <summary>A save-as picker for a site export, with a suggested file name. Null when cancelled.</summary>
+    public Func<string, string?>? PickSiteFileToSave { get; set; }
 
     /// <summary>A yes/no question, defaulting to No.</summary>
     public Func<string, bool>? Confirm { get; set; }
@@ -183,6 +207,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool IsBusy => _running > 0;
 
+    /// <summary>The open site's name: in the title bar and the status bar, so nobody backs up the wrong plant.</summary>
+    public string SiteName => _site.Name;
+
+    public string WindowTitle => $"RobControl - {_site.Name}";
+
+    /// <summary>Every site on this PC, for the Site > Switch to menu.</summary>
+    public ObservableCollection<SiteChoiceViewModel> SiteChoices { get; } = [];
+
     public string ArchiveRoot => _archive.Root;
 
     public int ScheduleHours => _settings.ScheduleHours;
@@ -201,7 +233,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_settings.IncludeFrom != value)
             {
                 _settings = _settings with { IncludeFrom = value };
-                _settings.Save(_trace);
+                SaveSettings();
                 OnPropertyChanged();
             }
         }
@@ -252,6 +284,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public IRelayCommand ChooseArchiveCommand { get; }
 
     public IRelayCommand<string> SetScheduleCommand { get; }
+
+    public IRelayCommand NewSiteCommand { get; }
+
+    public IRelayCommand EditSiteCommand { get; }
+
+    public IRelayCommand ImportSiteCommand { get; }
+
+    public IRelayCommand ExportSiteCommand { get; }
+
+    public IRelayCommand OpenSiteFolderCommand { get; }
+
+    /// <summary>Puts a sentence in the status bar - for things the host has to say at startup.</summary>
+    public void ReportStatus(string message) => Status = message;
 
     /// <summary>Selects the robot at <paramref name="address"/> - for <c>RobControl.exe --robot 10.20.1.54</c>.</summary>
     public bool SelectByAddress(string address)
@@ -375,7 +420,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void AddRobot()
     {
-        RobotDraft? draft = EditRobotDialog?.Invoke(null);
+        // A new robot starts with the site's FTP login: one plant tends to use one login everywhere.
+        RobotDraft? draft = EditRobotDialog?.Invoke(new RobotDraft
+        {
+            FtpUser = _settings.DefaultFtpUser,
+            FtpPassword = _settings.DefaultFtpPassword,
+        });
         if (draft is null || !TrySave(draft, out Robot? saved))
         {
             return;
@@ -685,7 +735,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         _settings = _settings with { ArchiveRoot = folder };
-        _settings.Save(_trace);
+        SaveSettings();
         _archive = new BackupArchive(folder);
         _store.Info(EventCategory.App, null, $"Archive folder set to {folder}.");
         OnPropertyChanged(nameof(ArchiveRoot));
@@ -696,7 +746,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         int value = int.TryParse(hours, NumberStyles.None, CultureInfo.InvariantCulture, out int h) ? Math.Clamp(h, 0, 168) : 0;
         _settings = _settings with { ScheduleHours = value };
-        _settings.Save(_trace);
+        SaveSettings();
         _store.Info(EventCategory.App, null, value == 0 ? "Scheduled backups turned off." : $"Scheduled backups every {value} h while RobControl is open.");
         PlanNextRun();
         OnPropertyChanged(nameof(ScheduleHours));
@@ -706,6 +756,210 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         _nextScheduled = _settings.ScheduleHours > 0 ? DateTimeOffset.UtcNow.AddHours(_settings.ScheduleHours) : null;
         _ui.Post(() => OnPropertyChanged(nameof(ScheduleText)));
+    }
+
+    /// <summary>
+    /// Writes the site's settings. Never throws: a setting that did not save is a nuisance, and the
+    /// status bar says so rather than a dialog in the middle of a backup.
+    /// </summary>
+    private void SaveSettings()
+    {
+        try
+        {
+            _site = _sites.SaveCurrent(_settings);
+            _settings = _site.Settings;
+        }
+        catch (SiteException ex)
+        {
+            _trace.Warn("Site settings could not be saved.", ex);
+            Status = $"Setting not saved: {ex.Message}";
+        }
+    }
+
+    // ------------------------------------------------------------------ sites
+
+    private void ReloadSites()
+    {
+        SiteChoices.Clear();
+        try
+        {
+            foreach (Site site in _sites.Sites())
+            {
+                bool current = string.Equals(site.Key, _site.Key, StringComparison.OrdinalIgnoreCase);
+                SiteChoices.Add(new SiteChoiceViewModel(site.Key, site.Name, current, new RelayCommand(() => SwitchTo(site.Key))));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _trace.Warn("The site list could not be read.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Whether it is all right to close this site now. A probe or backup in flight is a hard no - it
+    /// would be cut off - and recording is a question, because stopping it is what the person may want.
+    /// </summary>
+    private bool ReadyToLeave(string otherName)
+    {
+        if (IsBusy)
+        {
+            ShowMessage?.Invoke($"A probe or backup is running on {_site.Name}. Let it finish, or press Stop, then switch to {otherName}.");
+            return false;
+        }
+
+        int recording = _recorder.Recording.Count;
+        return recording == 0
+            || Confirm?.Invoke(string.Create(CultureInfo.CurrentCulture,
+                $"Trend recording on {recording} robot(s) at {_site.Name} stops when you switch to {otherName}. Switch anyway?")) == true;
+    }
+
+    private void SwitchTo(string key)
+    {
+        if (string.Equals(key, _site.Key, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        string name = SiteChoices.FirstOrDefault(c => c.Key == key)?.Name ?? key;
+        if (!ReadyToLeave(name))
+        {
+            return;
+        }
+
+        // On success this view model has been disposed and replaced by the time Switch returns;
+        // nothing after it may touch the store.
+        if (_sites.Switch(key) is { } problem)
+        {
+            ShowMessage?.Invoke(problem);
+        }
+    }
+
+    private void NewSite()
+    {
+        SiteDraft? draft = EditSiteDialog?.Invoke(new SiteDraft(), true);
+        if (draft is null)
+        {
+            return;
+        }
+
+        if (!draft.TryBuild(new SiteSettings(), out SiteSettings? settings, out string? problem))
+        {
+            ShowMessage?.Invoke(problem ?? "The site details are not valid.");
+            return;
+        }
+
+        Site created;
+        try
+        {
+            created = _sites.Create(settings!);
+        }
+        catch (SiteException ex)
+        {
+            ShowMessage?.Invoke(ex.Message + (ex.Remediation is null ? string.Empty : Environment.NewLine + Environment.NewLine + ex.Remediation));
+            return;
+        }
+
+        _store.Info(EventCategory.App, null, $"Site '{created.Name}' created.");
+        ReloadSites();
+        SwitchTo(created.Key);
+    }
+
+    private void EditSite()
+    {
+        SiteDraft? draft = EditSiteDialog?.Invoke(SiteDraft.From(_settings), false);
+        if (draft is null)
+        {
+            return;
+        }
+
+        if (!draft.TryBuild(_settings, out SiteSettings? settings, out string? problem))
+        {
+            ShowMessage?.Invoke(problem ?? "The site details are not valid.");
+            return;
+        }
+
+        string oldArchive = _archive.Root;
+        try
+        {
+            _site = _sites.SaveCurrent(settings!);
+            _settings = _site.Settings;
+        }
+        catch (SiteException ex)
+        {
+            ShowMessage?.Invoke(ex.Message + (ex.Remediation is null ? string.Empty : Environment.NewLine + Environment.NewLine + ex.Remediation));
+            return;
+        }
+
+        _store.Info(EventCategory.App, null, $"Site settings changed: '{_site.Name}'.");
+        if (!string.Equals(oldArchive, _settings.ArchiveRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            // Backups already taken stay where they are; the history now reads the new folder.
+            _archive = new BackupArchive(_settings.ArchiveRoot);
+            _store.Info(EventCategory.App, null, $"Archive folder set to {_settings.ArchiveRoot}.");
+            OnPropertyChanged(nameof(ArchiveRoot));
+            RefreshAll();
+        }
+
+        OnPropertyChanged(nameof(SiteName));
+        OnPropertyChanged(nameof(WindowTitle));
+        ReloadSites();
+    }
+
+    private void ExportSite()
+    {
+        string suggested = ArchiveNames.RobotFolder(_site.Name) + ".robcontrol-site.json";
+        if (PickSiteFileToSave?.Invoke(suggested) is not { } path)
+        {
+            return;
+        }
+
+        List<Robot> robots = [.. Robots.Select(r => r.Robot)];
+        try
+        {
+            SiteCatalog.Export(_site, robots, path, _tool);
+        }
+        catch (SiteException ex)
+        {
+            ShowMessage?.Invoke(ex.Message + (ex.Remediation is null ? string.Empty : Environment.NewLine + Environment.NewLine + ex.Remediation));
+            return;
+        }
+
+        _store.Info(EventCategory.App, null, string.Create(CultureInfo.InvariantCulture, $"Site exported to {path}: {robots.Count} robot(s)."));
+        bool passwords = _settings.DefaultFtpPassword.Length > 0 || robots.Any(r => r.Ftp.Password.Length > 0);
+        Status = string.Create(CultureInfo.CurrentCulture, $"Exported {_site.Name} and {robots.Count} robot(s) to {path}.")
+            + (passwords ? " It contains FTP passwords - keep it like a list of logins." : string.Empty);
+    }
+
+    private void ImportSite()
+    {
+        if (PickSiteFileToOpen?.Invoke() is not { } path)
+        {
+            return;
+        }
+
+        SiteImportResult result;
+        try
+        {
+            result = _sites.Import(path);
+        }
+        catch (RobControlException ex)
+        {
+            ShowMessage?.Invoke(ex.Message + (ex.Remediation is null ? string.Empty : Environment.NewLine + Environment.NewLine + ex.Remediation));
+            return;
+        }
+
+        ReloadSites();
+        string summary = string.Create(CultureInfo.CurrentCulture, $"Imported '{result.Site.Name}' with {result.Added} robot(s).")
+            + (result.Skipped.Count == 0
+                ? string.Empty
+                : Environment.NewLine + Environment.NewLine + "Not imported:" + Environment.NewLine + "- " + string.Join(Environment.NewLine + "- ", result.Skipped))
+            + Environment.NewLine + Environment.NewLine
+            + $"Backups go to {result.Site.Settings.ArchiveRoot}. Switch to it now?";
+
+        if (Confirm?.Invoke(summary) == true)
+        {
+            SwitchTo(result.Site.Key);
+        }
     }
 
     private void DiagnoseNetwork()

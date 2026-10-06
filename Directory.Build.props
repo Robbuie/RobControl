@@ -16,7 +16,7 @@
 
          1.0.0 is reserved for the build that backs up a real fleet on a schedule without anyone
          reaching for a USB stick - Phase 1's own definition of done. -->
-    <VersionPrefix>0.2.0</VersionPrefix>
+    <VersionPrefix>0.3.0</VersionPrefix>
     <Product>RobControl</Product>
 
     <EnableNETAnalyzers>true</EnableNETAnalyzers>

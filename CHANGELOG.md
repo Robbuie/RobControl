@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 - sites
+
+- **A site per plant.** Each site has its own robot list, event log, trends, archive folder, schedule,
+  and the FTP login new robots start with. Switch between them from the **Site** menu; the open
+  site is named in the title bar and the status bar. Two plants can both have an R1-01 at the same
+  address without ever meeting.
+- Each site is a folder under `%LOCALAPPDATA%\RobControl\sites\` holding a hand-editable
+  `site.json` and its own database. **Site > Open site folder** goes there.
+- **Export site file / Import site file**: a site's settings and robot list in one
+  `.robcontrol-site.json`, to carry to another laptop or hand to a colleague. Importing always makes
+  a new site - never a merge - and an archive folder that is not on this PC falls back to the
+  default. The file contains FTP passwords where robots have them.
+- `RobControl.exe --site "Plant 3"` opens that site.
+- **Upgrading from 0.2.0:** the existing robot list, event log and trends move into a first site
+  called "My site", keeping the archive folder, schedule and settings already chosen - so every
+  existing backup is still in its robot's history. Rename it from Site > Site settings.
+
 ## 0.2.0 - trending, and many robots at once
 
 - **Trending** of registers, I/O and system variables. Type signals as on the pendant -
@@ -13,7 +30,7 @@
 - **Multi-select** in the robot list (Ctrl/Shift-click): Probe, Back up and the whole Trends tab act on
   every selected robot.
 - A robot that stops answering is backed off up to a minute, and comes back on its own.
-- Samples older than 30 days are pruned (`trendRetentionDays` in `robcontrol.json`). Starting and
+- Samples older than 30 days are pruned (`trendRetentionDays` in `robcontrol.json`; per site in `site.json` from 0.3.0). Starting and
   stopping a recording is in the event log for good.
 - `robotsim --animate` makes registers, I/O and a timer move, for trying all of this without a robot.
 

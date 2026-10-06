@@ -125,14 +125,16 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
     History/                       LineDiff (Myers), BackupComparer, TextSniffer
     Trending/                      SignalAddress, register/IO parsers, RobotSampler, TrendRecorder
     Events/                        IEventSink - how Core writes the record without knowing SQLite
+    Sites/                         SiteSettings (site.json), SiteCatalog, export file (SiteFile/SiteRobot)
     Persistence/                   FleetStore: robots, last probe, append-only Event, trend signals/samples
     Diagnostics/                   TraceLog (copied from NetControl)
 src/RobControl.App/                WPF front end - net10.0-windows
     Appearance/                    copied value for value from NetControl; default accent amber
-    Composition/                   AppHost, AppPaths, dispatcher, UserSettings, NetControlHandoff
+    Composition/                   AppHost (owns the open site, switches it), AppPaths, dispatcher,
+                                   UserSettings (last site), ISiteHost, NetControlHandoff
     Diagnostics/                   build stamp and the updater, copied from NetControl
     ViewModels/                    all UI logic, free of WPF types
-    Views/                         MainWindow, RobotWindow, TrendChart (hand-drawn), Appearance/Update
+    Views/                         MainWindow, RobotWindow, SiteWindow, TrendChart (hand-drawn), Appearance/Update
 src/RobControl.RobotSim/           fake controller (FTP + HTTP) serving a profile folder; records
                                    every command and refuses - and lists - anything not a read
 tools/RobControl.Probe/            Phase 0 capture tool: one real robot, read-only, into a profile
@@ -145,6 +147,30 @@ tests/Fixtures/                    controller profiles - synthetic now, real cap
 at a desk instead of against a running line. **Every response captured from a real controller in
 Phase 0 goes into `tests/Fixtures/<generation>-<version>-<app>/`**, and the parsers are tested
 against those, not against what we think a controller says.
+
+## Sites - one per plant
+
+The person goes from plant to plant. A **site** is everything RobControl knows about one plant, and
+sites are **fully separate**:
+
+- `%LOCALAPPDATA%\RobControl\sites\<key>\site.json` - name, archive folder, robots at once,
+  schedule, FR: on/off, trend retention, the FTP login new robots start with, notes. Plain JSON,
+  camelCase, comments and trailing commas forgiven, every value clamped on load. Hand-editable
+  while the site is not open (the app rewrites it when a setting changes).
+- `...\sites\<key>\robcontrol.db` - that site's robots, probes, event log and trends. No site ever
+  reads another's database, so two plants' R1-01 at the same address can never be confused.
+- Each site has its own archive root (default `Documents\RobControl Backups\<site>`).
+- `<key>` is the folder name, fixed at creation; the name can be changed freely. One site is open at a
+  time. Switching disposes the view model and the database and builds both again
+  (`AppHost.Switch`) - refused while a probe or backup runs, and it asks first if trends are
+  recording, because switching stops them.
+- `robcontrol.json` now only remembers the last site. **0.2.0's `robcontrol.db` is moved, not
+  copied, into the first site ("My site")** on first run, with its old archive folder - which was
+  `Documents\RobControl Backups` itself, not a per-site subfolder, so its history stays intact.
+- **Sites stay on this PC.** SQLite on a share corrupts. A site travels as an export file
+  (`.robcontrol-site.json`: settings + robot list, FTP passwords included) and imports as a new
+  site - never merged into an existing one. Robots in an import go through the same unicast and
+  duplicate-address checks as the robot dialog.
 
 ## Backups - the archive
 
@@ -296,12 +322,18 @@ Roboguide appears; restore assistant.
 
 ## Current state
 
-**0.2.0 - written and tested against the simulator; never yet in front of a real controller.**
+**0.3.0 - sites. Still never in front of a real controller.**
+
+0.3.0 added sites (Core/Sites, the Site menu, `SiteWindow`, `AppHost.Switch`, `--site`). The
+`SiteCatalog` tests (create, rename, hand-edit, broken site.json, legacy adoption, export/import,
+refusing non-site files and broadcast addresses) passed against a stand-in xUnit; the app's C# was
+compile-checked against stand-ins under warnings-as-errors; the XAML and code-behind were not
+compiled - the `verify` run is the check, as before.
 
 0.2.0 added trending (Core/Trending, the Trends tab, `TrendChart`) and multi-robot selection. The
 recorder is tested against two simulators at once, with changing values, a robot that stops
-answering, and KCL locked; the sample tables were checked with Python's sqlite3 as before. The
-chart and the Trends tab XAML have, like the rest of the app, never been compiled.
+answering, and KCL locked; the sample tables were checked with Python's sqlite3 as before. Its
+`verify` run was the first time the app, SQLite and xUnit were compiled for real, and it went green.
 
 
 - Core, RobotSim and the probe tool build clean under warnings-as-errors, and the suite - 179 cases
@@ -309,15 +341,16 @@ chart and the Trends tab XAML have, like the rest of the app, never been compile
   NuGet access, so `FleetStore` was compiled against a stand-in for Microsoft.Data.Sqlite (its
   schema and triggers were checked with Python's sqlite3), and xUnit was a stand-in runner. **The
   first CI run is the real check for those two.**
-- The WPF app (`RobControl.App`) has **never been compiled**: no WPF targeting pack was available.
-  Its view models were compile-checked against a stand-in for CommunityToolkit.Mvvm; the XAML and
-  code-behind were not. Expect the first `verify` run to find something in the XAML.
+- No WPF targeting pack or NuGet is reachable where these sessions run, so view models are
+  compile-checked against a stand-in for CommunityToolkit.Mvvm and the XAML only ever compiles in CI.
 - The tests found one real bug on the way: `SET VAR $DCSS_CPC[1].$ENABLE` was classified as a plain
   write, because the program-prefix strip cut at the array index's `]`. Fixed, and the cases stay.
 
 ### Pick up here
 
-1. **Push and let `verify` compile the app.** Fix whatever the XAML compiler finds.
+1. **Push and let `verify` compile 0.3.0** (the Site menu's ItemContainerStyle and `SiteWindow` are
+   the new XAML). Then run it once over a 0.2.0 profile and check the robots, history and event
+   log arrived in "My site".
 2. **Phase 0 with a real robot**: `robcontrol-probe <address>` on a V9.40 SpotTool robot, read
    the capture, commit it under `tests/Fixtures/`, and turn every assumption above that it confirms
    or breaks into a line under *Controller gotchas*. The probe fetches `NUMREG.VA` and `IOSTATE.DG`

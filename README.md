@@ -17,6 +17,7 @@ before changing anything that sends a packet.**
 | **Compare** | Any two backups of a robot: which files changed, were added or removed, and the line diff of the ASCII listings (`.LS`, `.VA`). |
 | **Schedule** | Fleet backups every 4/8/12/24 hours while the app is open. |
 | **Trend** | Registers, I/O and system variables, typed as on the pendant (`R[1-10], DI[1..8], $TIMER[1].$TIMER_VAL`). Read once, or record several robots at once and overlay them on one chart. Only changes are stored; CSV export. |
+| **Sites** | One per plant: its own robot list, archive folder, schedule, event log and trends. Switch from the Site menu; export a site to a file to carry it to another laptop. |
 | **Many at once** | Ctrl/Shift-click robots in the list and Probe, Back up and Trends act on all of them. |
 | **Event log** | Every probe and backup, append-only at the database. |
 | **Diagnose network** | Opens [NetControl](https://github.com/Robbuie/NetControl) on a robot that does not answer. |

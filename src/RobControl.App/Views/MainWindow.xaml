@@ -7,7 +7,7 @@
         xmlns:views="clr-namespace:RobControl.App.Views"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
-        Title="RobControl"
+        Title="{Binding WindowTitle}"
         Height="760" Width="1260"
         MinHeight="520" MinWidth="980"
         WindowStartupLocation="CenterScreen"
@@ -17,6 +17,31 @@
        the constructor - attached-property element syntax for it trips MC3089 (see NetControl). -->
   <Window.Resources>
     <Menu x:Key="TitleMenu" Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
+      <MenuItem Header="_Site">
+        <!-- One line per site on this PC; each carries its own command (SiteChoiceViewModel). -->
+        <MenuItem Header="_Switch to" ItemsSource="{Binding SiteChoices}">
+          <MenuItem.ItemContainerStyle>
+            <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+              <Setter Property="Header" Value="{Binding Name}" />
+              <Setter Property="IsChecked" Value="{Binding IsCurrent, Mode=OneWay}" />
+              <Setter Property="Command" Value="{Binding Command}" />
+            </Style>
+          </MenuItem.ItemContainerStyle>
+        </MenuItem>
+        <Separator />
+        <MenuItem Header="_New site..." Command="{Binding NewSiteCommand}"
+                  ToolTip="A plant of its own: its own robot list, archive folder, schedule and event log." />
+        <MenuItem Header="Site s_ettings..." Command="{Binding EditSiteCommand}"
+                  ToolTip="Name, archive folder, robots at once, the FTP login new robots start with, notes." />
+        <Separator />
+        <MenuItem Header="_Import site file..." Command="{Binding ImportSiteCommand}"
+                  ToolTip="Makes a new site from a file exported on another PC - settings and robot list." />
+        <MenuItem Header="E_xport site file..." Command="{Binding ExportSiteCommand}"
+                  ToolTip="This site's settings and robot list in one file, to carry to another PC. It includes FTP passwords." />
+        <Separator />
+        <MenuItem Header="_Open site folder" Command="{Binding OpenSiteFolderCommand}"
+                  ToolTip="Where site.json and this site's database live. site.json can be edited by hand while the site is closed." />
+      </MenuItem>
       <MenuItem Header="_Robots">
         <MenuItem Header="_Add robot..." Command="{Binding AddRobotCommand}" />
         <MenuItem Header="_Edit robot..." Command="{Binding EditRobotCommand}" />
@@ -89,6 +114,8 @@
         <TextBlock Grid.Column="0" Style="{StaticResource Muted}" Text="{Binding Status}"
                    TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" />
         <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" ToolTip="The open site. Site menu to switch." />
+          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
           <TextBlock Style="{StaticResource Muted}" Text="{Binding ScheduleText}" />
           <TextBlock Style="{StaticResource Muted}" Text="  -  " />
           <TextBlock Style="{StaticResource Muted}" Text="{Binding ArchiveRoot}" ToolTip="Archive folder" />

@@ -40,6 +40,23 @@ public static class AppPaths
     /// </summary>
     public static string Updates { get; } = Path.Combine(Data, "updates");
 
+    /// <summary>One folder per site: its <c>site.json</c> and its own fleet database. See <c>SiteCatalog</c>.</summary>
+    public static string Sites { get; } = Path.Combine(Data, "sites");
+
+    /// <summary>
+    /// Where the fleet database was before there were sites (0.2.0 and earlier). Moved into the
+    /// first site on the first run of 0.3.0 and absent after that.
+    /// </summary>
+    public static string LegacyDatabase { get; } = Path.Combine(Data, "robcontrol.db");
+
+    /// <summary>
+    /// Where a new site's backups go unless the person says otherwise: a folder per site under
+    /// Documents\RobControl Backups - the same parent 0.2.0 used, so old and new sit side by side.
+    /// </summary>
+    public static string ArchiveBase { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments, Environment.SpecialFolderOption.DoNotVerify),
+        "RobControl Backups");
+
     /// <summary>
     /// The optional settings file. Absent by default and absent on most machines: everything it can
     /// hold has a working default, and the tool has to run correctly on a laptop where nobody has

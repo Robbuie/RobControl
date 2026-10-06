@@ -17,6 +17,8 @@ namespace RobControl.App.Views;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private const string SiteFileFilter = "RobControl site (*.robcontrol-site.json)|*.robcontrol-site.json|JSON (*.json)|*.json|All files (*.*)|*.*";
+
     private bool _checkingForUpdates;
 
     public MainWindow()
@@ -38,6 +40,9 @@ public partial class MainWindow : Window
             old.ShowMessage = null;
             old.PickFolder = null;
             old.OpenFolder = null;
+            old.EditSiteDialog = null;
+            old.PickSiteFileToOpen = null;
+            old.PickSiteFileToSave = null;
             old.Trend.PickSaveFile = null;
             old.Trend.ShowMessage = null;
         }
@@ -53,15 +58,44 @@ public partial class MainWindow : Window
                 MessageBox.Show(this, message, "RobControl", MessageBoxButton.OK, MessageBoxImage.Information);
             viewModel.PickFolder = PickFolder;
             viewModel.OpenFolder = folder => Shell.Open(this, folder);
+            viewModel.EditSiteDialog = ShowSiteDialog;
+            viewModel.PickSiteFileToOpen = PickSiteFileToOpen;
+            viewModel.PickSiteFileToSave = PickSiteFileToSave;
             viewModel.Trend.PickSaveFile = PickCsvFile;
             viewModel.Trend.ShowMessage = viewModel.ShowMessage;
         }
     }
 
-    private RobotDraft? ShowRobotDialog(RobotDraft? existing)
+    private RobotDraft? ShowRobotDialog(RobotDraft draft)
     {
-        var dialog = new RobotWindow(existing) { Owner = this };
+        var dialog = new RobotWindow(draft) { Owner = this };
         return dialog.ShowDialog() == true ? dialog.Result : null;
+    }
+
+    private SiteDraft? ShowSiteDialog(SiteDraft draft, bool isNew)
+    {
+        var dialog = new SiteWindow(draft, isNew) { Owner = this };
+        return dialog.ShowDialog() == true ? dialog.Result : null;
+    }
+
+    private string? PickSiteFileToOpen()
+    {
+        var dialog = new OpenFileDialog { Title = "Import site", Filter = SiteFileFilter, CheckFileExists = true };
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+    }
+
+    private string? PickSiteFileToSave(string suggested)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export site",
+            FileName = suggested,
+            Filter = SiteFileFilter,
+            DefaultExt = ".json",
+            AddExtension = true,
+        };
+
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
     }
 
     private string? PickFolder(string current)

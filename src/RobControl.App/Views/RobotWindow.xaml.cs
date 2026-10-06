@@ -11,12 +11,14 @@ public partial class RobotWindow : Window
 {
     private readonly long _id;
 
-    public RobotWindow(RobotDraft? existing)
+    /// <param name="draft">A draft with no Id adds a robot - pre-filled with the site's FTP login; one with an Id edits it.</param>
+    public RobotWindow(RobotDraft draft)
     {
+        ArgumentNullException.ThrowIfNull(draft);
         InitializeComponent();
-        RobotDraft draft = existing ?? new RobotDraft();
         _id = draft.Id;
-        Title = existing is null ? "Add robot" : $"Edit {existing.Name}";
+        bool adding = draft.Id == 0;
+        Title = adding ? "Add robot" : $"Edit {draft.Name}";
         NameBox.Text = draft.Name;
         AddressBox.Text = draft.Address;
         LineBox.Text = draft.Line;
@@ -25,7 +27,7 @@ public partial class RobotWindow : Window
         PasswordInput.Password = draft.FtpPassword;
         FtpPortBox.Text = draft.FtpPort;
         HttpPortBox.Text = draft.HttpPort;
-        Loaded += (_, _) => (existing is null ? NameBox : AddressBox).Focus();
+        Loaded += (_, _) => (adding ? NameBox : AddressBox).Focus();
     }
 
     public RobotDraft? Result { get; private set; }
