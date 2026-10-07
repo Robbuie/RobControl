@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0 - fleet insight from backups
+
+Everything here reads the backups already on disk - nothing new is sent to a robot.
+
+- **Search** tab: a program name, `R[45]`, `DO[120]` or any text across every robot's newest backup
+  (or the whole history), with the lines around each hit. Registers and ports are matched however a
+  line writes them. For a program or register, **which programs call or use it**; and **Programs
+  nothing calls**, per robot.
+- **Alarms** tab: alarm history from the alarm logs in every backup, merged and de-duplicated - most
+  frequent alarms, per-robot counts and mean time between alarms, occurrences of one alarm, and
+  battery, collision and mastering alarms marked as needing a job.
+- **Fleet** tab: model, software, F-number and backup age of every robot (stale in red after 7
+  days), CSV export, and **watched setting changes** between backups - tool and user frames,
+  payload, mastering, reference positions, joint limits, DCS, software version.
+- **Site report** (Fleet tab, or Site > Site report): one printable page for the visit - backup
+  status, alarms needing a job, frequent alarms, setting changes and site notes.
+- **Fixed: the downloaded exe did nothing on another PC.** The single-file build left WPF's and
+  SQLite's native DLLs beside the exe instead of inside it, and the release ships the exe alone, so it
+  exited without a window or a message. They are now inside the exe, and the build refuses to publish
+  if anything is left beside it.
+
+## 0.3.1 - help inside the app
+
+- **Help > Read me** (F1) shows how to use RobControl, and **Help > What's new** shows this
+  changelog - both compiled into the exe, so a portable copy has its help too, and it always
+  matches the version running. Links open in the browser; **Open on GitHub** shows the newest copy.
+- The README is rewritten for the person using the app: getting started, sites, trends, where
+  things are kept, the command line. The developer notes follow it.
+
 ## 0.3.0 - sites
 
 - **A site per plant.** Each site has its own robot list, event log, trends, archive folder, schedule,

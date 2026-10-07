@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using RobControl.Core;
 using RobControl.Core.Controllers;
+using RobControl.Core.Insight;
 using RobControl.Core.Kcl;
 using RobControl.Core.Transports.Ftp;
 using RobControl.Core.Transports.Http;
@@ -119,6 +120,36 @@ try
         await using var file = File.Create(Path.Combine(outDir, "MD", name));
         long bytes = await ftp.RetrieveAsync(name, file);
         Say($"  RETR {name}: {bytes} bytes");
+    }
+
+    // What the backup-reading views would make of these files - their formats are assumptions until
+    // a real controller shows them. Zero here means the format is not what was assumed.
+    foreach (string name in pick)
+    {
+        string saved = Path.Combine(outDir, "MD", name);
+        if (!File.Exists(saved))
+        {
+            continue;
+        }
+
+        IReadOnlyList<string> lines = RobControl.Core.History.BackupComparer.ReadLines(saved);
+        if (AlarmLogParser.IsAlarmLog(name))
+        {
+            IReadOnlyList<AlarmEntry> alarms = AlarmLogParser.Parse("probe", lines);
+            Say($"  alarm parser: {alarms.Count} alarms recognised in {name}, {alarms.Count(e => e.When is not null)} with a date");
+        }
+        else if (name.EndsWith(".LS", StringComparison.OrdinalIgnoreCase))
+        {
+            ProgramListing? listing = ProgramListingParser.Parse(lines);
+            Say(listing is null
+                ? $"  program parser: {name} not recognised as a TP listing"
+                : $"  program parser: {listing.Name}, {listing.Lines.Count} lines, {listing.References.Count} references, calls {string.Join(" ", listing.Calls)}");
+        }
+        else if (name.EndsWith(".VA", StringComparison.OrdinalIgnoreCase))
+        {
+            int headers = lines.Count(l => l.StartsWith('$') || l.StartsWith('['));
+            Say($"  settings watch: {headers} variable headers in {name}");
+        }
     }
 
     await ftp.QuitAsync();

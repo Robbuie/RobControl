@@ -102,6 +102,11 @@ $publishArgs = @(
     '-r', $Runtime,
     '--self-contained',
     '-p:PublishSingleFile=true',
+    # Without this, a single-file WPF publish leaves its native DLLs (wpfgfx_cor3, PresentationNative_cor3,
+    # D3DCompiler_47_cor3, vcruntime140_cor3, PenImc_cor3) and SQLite's e_sqlite3 BESIDE the exe. The
+    # release and the installer ship the exe alone, so on any other PC WPF cannot load and the process
+    # exits before a window or an error box can appear. Bundled, they are extracted on first run.
+    '-p:IncludeNativeLibrariesForSelfExtract=true',
     '-o', $output,
     '--nologo'
 )
@@ -114,6 +119,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 # --- what goes in the envelope -----------------------------------------------------------------
 $exe = Join-Path $output 'RobControl.exe'
 if (-not (Test-Path $exe)) { throw "Expected $exe and it is not there." }
+
+# The exe has to stand alone: the release and the installer carry it and nothing else. Anything the
+# publish left beside it is something the copy on another PC will not have.
+$beside = Get-ChildItem $output -File |
+    Where-Object { $_.Name -ne 'RobControl.exe' -and $_.Extension -notin '.pdb', '.sha256', '.json' }
+if ($beside) {
+    throw "The publish left files beside RobControl.exe that the release would not ship: $($beside.Name -join ', ')"
+}
 
 # So a copy that arrived by email or on a USB stick can be checked against the one that was built.
 $hash = (Get-FileHash $exe -Algorithm SHA256).Hash

@@ -68,6 +68,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _archive = new BackupArchive(_settings.ArchiveRoot);
         _recorder = recorder ?? new TrendRecorder(store, store);
         Trend = new TrendViewModel(ui, store, _recorder, () => Targets);
+        Search = new SearchViewModel(Snapshot);
+        Alarms = new AlarmsViewModel(Snapshot);
+        Fleet = new FleetViewModel(Snapshot);
 
         AddRobotCommand = new RelayCommand(AddRobot);
         EditRobotCommand = new RelayCommand(EditRobot, () => Selected is { IsBusy: false });
@@ -174,6 +177,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     };
 
     public TrendViewModel Trend { get; }
+
+    /// <summary>The Search tab - across this site's backups.</summary>
+    public SearchViewModel Search { get; }
+
+    /// <summary>The Alarms tab - alarm history from this site's backups.</summary>
+    public AlarmsViewModel Alarms { get; }
+
+    /// <summary>The Fleet tab - inventory, watched setting changes, the site report.</summary>
+    public FleetViewModel Fleet { get; }
+
+    /// <summary>The open site as the fleet-wide tabs read it, at this moment.</summary>
+    public FleetContext Snapshot() => new(
+        _site.Name,
+        _settings.Notes,
+        _archive,
+        [.. Robots.Select(r => (r.Robot, r.Identity))],
+        _tool);
 
     /// <summary>Called by the view when the list's selection changes - a DataGrid's SelectedItems cannot be bound.</summary>
     public void SetSelection(IEnumerable<RobotRowViewModel> rows)
@@ -393,6 +413,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _store.EventRecorded -= OnEventRecorded;
+        Search.Cancel();
+        Alarms.Cancel();
+        Fleet.Cancel();
         Trend.Dispose();
         _recorder.StopAllAsync().GetAwaiter().GetResult();
         _shutdown.Cancel();

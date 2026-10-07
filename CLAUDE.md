@@ -126,6 +126,10 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
     Trending/                      SignalAddress, register/IO parsers, RobotSampler, TrendRecorder
     Events/                        IEventSink - how Core writes the record without knowing SQLite
     Sites/                         SiteSettings (site.json), SiteCatalog, export file (SiteFile/SiteRobot)
+    Help/                          MarkdownLite - the README/CHANGELOG subset, parsed for Help > Read me
+    Insight/                       Read-only views over the archive: ProgramListingParser + CrossReference,
+                                   BackupSearch, AlarmLogParser + AlarmHistory, SettingsWatch,
+                                   FleetInventory, SiteReport (HTML)
     Persistence/                   FleetStore: robots, last probe, append-only Event, trend signals/samples
     Diagnostics/                   TraceLog (copied from NetControl)
 src/RobControl.App/                WPF front end - net10.0-windows
@@ -133,8 +137,10 @@ src/RobControl.App/                WPF front end - net10.0-windows
     Composition/                   AppHost (owns the open site, switches it), AppPaths, dispatcher,
                                    UserSettings (last site), ISiteHost, NetControlHandoff
     Diagnostics/                   build stamp and the updater, copied from NetControl
-    ViewModels/                    all UI logic, free of WPF types
-    Views/                         MainWindow, RobotWindow, SiteWindow, TrendChart (hand-drawn), Appearance/Update
+    ViewModels/                    all UI logic, free of WPF types; Search/Alarms/Fleet tabs read a
+                                   FleetContext snapshot of the open site
+    Views/                         MainWindow, RobotWindow, SiteWindow, DocumentWindow + MarkdownRenderer
+                                   (Help > Read me / What's new), TrendChart (hand-drawn), Appearance/Update
 src/RobControl.RobotSim/           fake controller (FTP + HTTP) serving a profile folder; records
                                    every command and refuses - and lists - anything not a read
 tools/RobControl.Probe/            Phase 0 capture tool: one real robot, read-only, into a profile
@@ -272,6 +278,21 @@ that will bite first in this repo:
   `.targets`. No `--` inside XML comments.
 - `Span<T>` locals are illegal in `async` methods and iterators.
 
+## The README is part of the product
+
+`README.md` is compiled into the exe and shown under **Help > Read me** (F1); `CHANGELOG.md` under
+**Help > What's new**. So:
+
+- **Every change that affects what a user sees or does updates the README in the same commit** -
+  a new feature, menu, setting, file location or command-line switch - and adds a CHANGELOG line.
+  A change is not done until both say so.
+- Everything above `<!-- end of in-app readme -->` is for the person using the app: what it does,
+  how to do it, where things are kept. Build, layout and Phase 0 notes go below the marker. A test
+  (`MarkdownLiteTests.The_real_README_has_an_in_app_section_for_users`) keeps the marker in place.
+- Write in the subset `MarkdownLite` renders: headings, paragraphs, `-` and `1.` lists, pipe tables,
+  fenced code, `**bold**`, `*italic*`, `` `code` ``, links. Images and HTML comments are dropped.
+  Relative links resolve to the file on GitHub; only http(s) links are ever opened.
+
 ## Conventions
 
 - Nullable on, warnings as errors in `src/`.
@@ -305,15 +326,25 @@ with a concurrency limit, scheduled backups while the app is running (tray), arc
 status grid of last good backup per robot.
 
 **Phase 2 - history.** Diff any two backups, golden reference per robot, drift report. Spot: weld
-schedules and gun data diffed as first-class items.
+schedules and gun data diffed as first-class items. *0.4.0 added, from backups only:* search with
+register-aware matching and where-used, programs nothing calls, alarm history (Pareto, per robot,
+mean time between, battery/collision/mastering call-outs), watched setting changes, fleet
+inventory + CSV, the site report. Still to do, in this order: fleet consistency compare (same
+program/schedule/variable across robots, odd one out); golden backup + drift report; per-site
+ignore lists for noisy files and lines; plain-words change log ("WELD_A line 42: 1500 -> 1200
+mm/s"); quick "programs and registers only" backup profile; diagnostics bundle for FANUC support.
 
 **Phase 3 - inspect.** KCL console (classified), system variable / register browser (read),
 alarm history, live I/O view (read), diagnostics bundle for FANUC support.
 
 **Phase 4 - trend.** *Started in 0.2.0:* registers, I/O and system variables polled into SQLite on
-many robots at once, chart, CSV. Still to do: thresholds and alerts, maintenance watches (battery,
-cycle time, alarm rates, weld counts / tip dress), position registers, saved signal sets ("spot gun
-watch") applied to a robot in one click.
+many robots at once, chart, CSV. Still to do - the process-engineer side, each depending on what
+Phase 0 shows the controllers expose: cycle time per program (from program state polling or a timer
+register; histogram, slow cycles flagged); availability (running / held / faulted time); maintenance
+by run time (grease, battery, reducer - servo-on hours or cycle counts, not calendar); spot gun watch
+(weld counts, tip dress, tip wear per gun) as a saved signal set; thresholds and Windows alerts on
+any signal; position register and home position compare across robots; a read-only Telnet KCL
+fallback (port 23, same classifier) where the HTTP KCL resource is locked.
 
 **Phase 5 - write gate.** As defined in Safety. Only after Phases 1-4 have run on real robots.
 
@@ -322,7 +353,22 @@ Roboguide appears; restore assistant.
 
 ## Current state
 
-**0.3.0 - sites. Still never in front of a real controller.**
+**0.4.0 - fleet insight from backups. Still never in front of a real controller.**
+
+0.4.0 added Core/Insight and the Search, Alarms and Fleet tabs plus the site report. The Insight
+tests (`InsightTests`, with `FakeBackup` writing archive folders directly) passed against a
+stand-in xUnit; the view models compiled against stand-ins under warnings-as-errors; the three new
+tabs' XAML compiles only in CI. **The alarm log, `.LS` and `.VA` layouts are FANUC's as documented,
+not yet seen from our controllers** - `AlarmLogParser` and `SettingsWatch` search rather than parse,
+and the first real capture should be run through both. The setting watch's variable names
+(`SettingsWatch.Rules`) are the ones to confirm first.
+
+
+0.3.1 added Help > Read me / What's new (Core/Help `MarkdownLite`, `DocumentWindow`,
+`MarkdownRenderer`, README and CHANGELOG as embedded resources) and rewrote the README user-first.
+The parser tests passed against a stand-in xUnit, including one that parses the real README;
+`MarkdownRenderer` and `DocumentWindow` are WPF and compile only in CI.
+
 
 0.3.0 added sites (Core/Sites, the Site menu, `SiteWindow`, `AppHost.Switch`, `--site`). The
 `SiteCatalog` tests (create, rename, hand-edit, broken site.json, legacy adoption, export/import,
@@ -348,9 +394,8 @@ answering, and KCL locked; the sample tables were checked with Python's sqlite3 
 
 ### Pick up here
 
-1. **Push and let `verify` compile 0.3.0** (the Site menu's ItemContainerStyle and `SiteWindow` are
-   the new XAML). Then run it once over a 0.2.0 profile and check the robots, history and event
-   log arrived in "My site".
+1. **Run 0.3.x once over a 0.2.0 profile** and check the robots, history and event log arrived in
+   "My site"; open Help > Read me in both themes.
 2. **Phase 0 with a real robot**: `robcontrol-probe <address>` on a V9.40 SpotTool robot, read
    the capture, commit it under `tests/Fixtures/`, and turn every assumption above that it confirms
    or breaks into a line under *Controller gotchas*. The probe fetches `NUMREG.VA` and `IOSTATE.DG`

@@ -39,6 +39,8 @@
         <MenuItem Header="E_xport site file..." Command="{Binding ExportSiteCommand}"
                   ToolTip="This site's settings and robot list in one file, to carry to another PC. It includes FTP passwords." />
         <Separator />
+        <MenuItem Header="Site _report..." Command="{Binding Fleet.ReportCommand}"
+                  ToolTip="One page for the visit, from the backups: backup status, alarms needing a job, frequent alarms, watched setting changes, notes." />
         <MenuItem Header="_Open site folder" Command="{Binding OpenSiteFolderCommand}"
                   ToolTip="Where site.json and this site's database live. site.json can be edited by hand while the site is closed." />
       </MenuItem>
@@ -87,6 +89,11 @@
                   ToolTip="Theme, accent and density - the same three axes as NetControl and Redline PDF." />
       </MenuItem>
       <MenuItem Header="_Help">
+        <MenuItem Header="_Read me" Click="OnReadme" InputGestureText="F1"
+                  ToolTip="How to use RobControl - the README of the version that is running." />
+        <MenuItem Header="What's _new" Click="OnWhatsNew"
+                  ToolTip="The changelog: what changed in each version." />
+        <Separator />
         <MenuItem Header="Check for _updates" Click="OnCheckForUpdates" />
         <MenuItem Header="_Releases page" Click="OnOpenReleases" />
         <Separator />
@@ -477,6 +484,209 @@
                     <views:TrendChart Series="{Binding Series}" From="{Binding From}" To="{Binding To}" />
                   </Border>
                 </DockPanel>
+              </Grid>
+            </DockPanel>
+          </TabItem>
+
+          <!-- ============ Fleet-wide tabs: read the archive, never a robot ============ -->
+
+          <TabItem Header="Search">
+            <DockPanel Margin="8" DataContext="{Binding Search}">
+              <StackPanel DockPanel.Dock="Top">
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Stop" Command="{Binding CancelCommand}" Margin="6,0,0,0" />
+                  <Button DockPanel.Dock="Right" Content="Search" Style="{StaticResource PrimaryButton}" Command="{Binding SearchCommand}" Margin="6,0,0,0" />
+                  <TextBox Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}"
+                           ToolTip="A program name (WELD_A), a register or port (R[45], PR[3], DO[120]) - found however the line writes it - or any text.">
+                    <TextBox.InputBindings>
+                      <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+                    </TextBox.InputBindings>
+                  </TextBox>
+                </DockPanel>
+                <WrapPanel Margin="0,6,0,0">
+                  <ComboBox ItemsSource="{Binding Scopes}" SelectedItem="{Binding Scope}" Width="230" Margin="0,0,10,0" />
+                  <CheckBox Content="Every backup, not just the newest" IsChecked="{Binding EveryBackup}" Margin="0,0,10,0" VerticalAlignment="Center"
+                            ToolTip="Search the whole history - to find when a line first appeared or which backup still had it." />
+                  <CheckBox Content="Match case" IsChecked="{Binding CaseSensitive}" Margin="0,0,10,0" VerticalAlignment="Center" />
+                  <CheckBox Content="Regex" IsChecked="{Binding IsRegex}" Margin="0,0,10,0" VerticalAlignment="Center" />
+                  <Button Content="Programs nothing calls" Command="{Binding NotCalledCommand}"
+                          ToolTip="Programs no other program CALLs or RUNs, per robot. They may still be started by PNS, RSR, a style table, a macro or the PLC." />
+                </WrapPanel>
+                <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
+              </StackPanel>
+
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="2*" MinHeight="80" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" MinHeight="60" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" MinHeight="60" />
+                </Grid.RowDefinitions>
+
+                <DataGrid Grid.Row="0" ItemsSource="{Binding Hits}" SelectedItem="{Binding SelectedHit}"
+                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Program" Width="110" Binding="{Binding Program, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Line" Width="50" Binding="{Binding Line, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Text" Width="*" Binding="{Binding Text, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="File" Width="120" Binding="{Binding File, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Backup" Width="130" Binding="{Binding Stamp, Mode=OneWay}" />
+                  </DataGrid.Columns>
+                </DataGrid>
+
+                <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent" />
+
+                <TextBox Grid.Row="2" Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True" FontFamily="{DynamicResource mono}"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+                         ToolTip="The lines around the selected hit, from the backup on disk." />
+
+                <TextBlock Grid.Row="3" Style="{StaticResource PanelHead}" Text="{Binding UsesTitle}" TextWrapping="Wrap" Margin="2,8,0,4" />
+
+                <DataGrid Grid.Row="4" ItemsSource="{Binding Uses}"
+                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Program" Width="130" Binding="{Binding Program, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Comment" Width="*" Binding="{Binding Comment, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Lines" Width="120" Binding="{Binding LineList, Mode=OneWay}" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </DockPanel>
+          </TabItem>
+
+          <TabItem Header="Alarms">
+            <DockPanel Margin="8" DataContext="{Binding Alarms}">
+              <StackPanel DockPanel.Dock="Top">
+                <WrapPanel>
+                  <Button Content="Refresh" Style="{StaticResource PrimaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,10,0"
+                          ToolTip="Reads the alarm log (ERRALL.LS) in every backup of this site and merges them - a longer history than the controller keeps." />
+                  <TextBlock Text="Period" VerticalAlignment="Center" Margin="0,0,6,0" />
+                  <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" Width="100" Margin="0,0,10,0" />
+                  <CheckBox Content="Only battery, collision and mastering" IsChecked="{Binding OnlyConcerns}" VerticalAlignment="Center" />
+                </WrapPanel>
+                <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
+              </StackPanel>
+
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="*" MinHeight="80" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" MinHeight="80" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="8" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <DataGrid Grid.Row="0" Grid.ColumnSpan="3" ItemsSource="{Binding Codes}" SelectedItem="{Binding SelectedCode}"
+                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Alarm" Width="85" Binding="{Binding Code, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="Message" Width="*" Binding="{Binding Message, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Count" Width="55" Binding="{Binding Count, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Robots" Width="150" Binding="{Binding Robots, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Last seen" Width="120" Binding="{Binding LastSeen, Mode=OneWay, StringFormat=g}" />
+                    <DataGridTextColumn Header="Needs a job" Width="85" Binding="{Binding ConcernText, Mode=OneWay}" />
+                  </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelHead}" Text="PER ROBOT" Margin="2,10,0,4" />
+                <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource PanelHead}" Text="OCCURRENCES OF THE SELECTED ALARM" Margin="2,10,0,4" />
+
+                <DataGrid Grid.Row="2" Grid.Column="0" ItemsSource="{Binding Robots}"
+                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Robot" Width="*" Binding="{Binding Robot, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Alarms" Width="55" Binding="{Binding Count, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Most frequent" Width="95" Binding="{Binding TopCode, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="Mean time between" Width="115" Binding="{Binding MeanTimeBetweenText, Mode=OneWay}" />
+                  </DataGrid.Columns>
+                </DataGrid>
+
+                <DataGrid Grid.Row="2" Grid.Column="2" ItemsSource="{Binding Occurrences}"
+                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="When" Width="125" Binding="{Binding When, Mode=OneWay, StringFormat=g}" />
+                    <DataGridTextColumn Header="Robot" Width="*" Binding="{Binding Robot, Mode=OneWay}" />
+                  </DataGrid.Columns>
+                </DataGrid>
+              </Grid>
+            </DockPanel>
+          </TabItem>
+
+          <TabItem Header="Fleet">
+            <DockPanel Margin="8" DataContext="{Binding Fleet}">
+              <StackPanel DockPanel.Dock="Top">
+                <WrapPanel>
+                  <Button Content="Refresh" Style="{StaticResource PrimaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,6,0" />
+                  <Button Content="Export CSV..." Command="{Binding ExportCsvCommand}" Margin="0,0,6,0" />
+                  <Button Content="Site report..." Command="{Binding ReportCommand}" Margin="0,0,10,0"
+                          ToolTip="One page for the visit: backup status, alarms needing a job, frequent alarms, watched setting changes and site notes. Opens in the browser to print or save as PDF." />
+                  <TextBlock Text="Changes in the last" VerticalAlignment="Center" Margin="0,0,6,0" />
+                  <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" Width="100" />
+                </WrapPanel>
+                <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
+              </StackPanel>
+
+              <Grid>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="*" MinHeight="80" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="*" MinHeight="80" />
+                </Grid.RowDefinitions>
+
+                <DataGrid Grid.Row="0" ItemsSource="{Binding Rows}"
+                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Robot" Width="100" Binding="{Binding Robot, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Address" Width="95" Binding="{Binding Address, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="Line" Width="70" Binding="{Binding Line, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Controller" Width="90" Binding="{Binding Controller, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Model" Width="110" Binding="{Binding Model, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Software" Width="*" Binding="{Binding Software, Mode=OneWay}" />
+                    <DataGridTextColumn Header="F-number" Width="75" Binding="{Binding FNumber, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Last complete" Width="115" Binding="{Binding LastComplete, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Age" Width="65" Binding="{Binding Age, Mode=OneWay}">
+                      <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                          <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsStale}" Value="True">
+                              <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                              <Setter Property="FontWeight" Value="SemiBold" />
+                            </DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Last attempt" Width="80" Binding="{Binding LastOutcome, Mode=OneWay}" />
+                  </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Grid.Row="1" Style="{StaticResource PanelHead}" Margin="2,10,0,4"
+                           Text="WATCHED SETTING CHANGES - FRAMES, PAYLOAD, MASTERING, REFERENCE POSITIONS, JOINT LIMITS, DCS, SOFTWARE VERSION" TextWrapping="Wrap" />
+
+                <DataGrid Grid.Row="2" ItemsSource="{Binding Changes}"
+                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Backup" Width="125" Binding="{Binding NewerStamp, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Robot" Width="90" Binding="{Binding Robot, Mode=OneWay}" />
+                    <DataGridTextColumn Header="What" Width="105" Binding="{Binding Category, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Variable" Width="120" Binding="{Binding Variable, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="Before" Width="*" Binding="{Binding OldText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                    <DataGridTextColumn Header="After" Width="*" Binding="{Binding NewText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  </DataGrid.Columns>
+                </DataGrid>
               </Grid>
             </DockPanel>
           </TabItem>

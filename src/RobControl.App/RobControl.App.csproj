@@ -29,6 +29,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Help > Read me and Help > What's new show these, compiled in so a portable exe copied on its
+         own still has its help - and always the help for the build that is running. -->
+    <EmbeddedResource Include="..\..\README.md" LogicalName="RobControl.README.md" Link="Help\README.md" />
+    <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="RobControl.CHANGELOG.md" Link="Help\CHANGELOG.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\RobControl.Core\RobControl.Core.csproj" />
   </ItemGroup>
 

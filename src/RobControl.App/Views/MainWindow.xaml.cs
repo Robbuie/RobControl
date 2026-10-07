@@ -20,12 +20,22 @@ public partial class MainWindow : Window
     private const string SiteFileFilter = "RobControl site (*.robcontrol-site.json)|*.robcontrol-site.json|JSON (*.json)|*.json|All files (*.*)|*.*";
 
     private bool _checkingForUpdates;
+    private DocumentWindow? _readme;
+    private DocumentWindow? _whatsNew;
 
     public MainWindow()
     {
         InitializeComponent();
         Chrome.SetTitleContent(this, Resources["TitleMenu"]);
         DataContextChanged += OnDataContextChanged;
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F1)
+            {
+                OnReadme(this, e);
+                e.Handled = true;
+            }
+        };
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
@@ -45,6 +55,9 @@ public partial class MainWindow : Window
             old.PickSiteFileToSave = null;
             old.Trend.PickSaveFile = null;
             old.Trend.ShowMessage = null;
+            old.Fleet.PickSaveFile = null;
+            old.Fleet.OpenFile = null;
+            old.Fleet.ShowMessage = null;
         }
 
         if (e.NewValue is MainViewModel viewModel)
@@ -63,6 +76,9 @@ public partial class MainWindow : Window
             viewModel.PickSiteFileToSave = PickSiteFileToSave;
             viewModel.Trend.PickSaveFile = PickCsvFile;
             viewModel.Trend.ShowMessage = viewModel.ShowMessage;
+            viewModel.Fleet.PickSaveFile = PickSaveFile;
+            viewModel.Fleet.OpenFile = path => Shell.Open(this, path);
+            viewModel.Fleet.ShowMessage = viewModel.ShowMessage;
         }
     }
 
@@ -107,6 +123,12 @@ public partial class MainWindow : Window
         }
 
         return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
+    }
+
+    private string? PickSaveFile(string title, string suggested, string filter)
+    {
+        var dialog = new SaveFileDialog { Title = title, FileName = suggested, Filter = filter, AddExtension = true };
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
     }
 
     private string? PickCsvFile(string suggested)
@@ -162,6 +184,26 @@ public partial class MainWindow : Window
         }
 
         return node is DataGridRow;
+    }
+
+    /// <summary>Help > Read me (F1). Not modal: people read it beside the window it describes.</summary>
+    private void OnReadme(object sender, RoutedEventArgs e) =>
+        ShowDocument(ref _readme, "RobControl - Read me", HelpDocuments.Readme, HelpDocuments.ReadmeOnline, appSectionOnly: true);
+
+    private void OnWhatsNew(object sender, RoutedEventArgs e) =>
+        ShowDocument(ref _whatsNew, "RobControl - What's new", HelpDocuments.Changelog, HelpDocuments.ChangelogOnline, appSectionOnly: false);
+
+    /// <summary>One window per document: asking again brings the open one forward rather than stacking copies.</summary>
+    private void ShowDocument(ref DocumentWindow? window, string title, string markdown, string online, bool appSectionOnly)
+    {
+        if (window is { IsLoaded: true })
+        {
+            window.Activate();
+            return;
+        }
+
+        window = new DocumentWindow(title, markdown, online, appSectionOnly) { Owner = this };
+        window.Show();
     }
 
     private void OnAppearance(object sender, RoutedEventArgs e) =>
