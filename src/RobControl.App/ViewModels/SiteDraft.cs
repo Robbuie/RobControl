@@ -20,6 +20,15 @@ public sealed record SiteDraft
 
     public string Concurrency { get; init; } = "2";
 
+    /// <summary>Days before a robot's last complete backup counts as stale.</summary>
+    public string StaleAfterDays { get; init; } = "7";
+
+    /// <summary>Times a scheduled backup retries robots that did not complete.</summary>
+    public string ScheduleRetries { get; init; } = "1";
+
+    /// <summary>Complete backups per robot that Prune old backups keeps; 0 turns pruning off.</summary>
+    public string KeepBackups { get; init; } = "0";
+
     public string DefaultFtpUser { get; init; } = FtpCredentials.Default.User;
 
     public string DefaultFtpPassword { get; init; } = string.Empty;
@@ -34,6 +43,9 @@ public sealed record SiteDraft
             Name = settings.Name,
             ArchiveRoot = settings.ArchiveRoot,
             Concurrency = settings.Concurrency.ToString(CultureInfo.InvariantCulture),
+            StaleAfterDays = settings.StaleAfterDays.ToString(CultureInfo.InvariantCulture),
+            ScheduleRetries = settings.ScheduleRetries.ToString(CultureInfo.InvariantCulture),
+            KeepBackups = settings.KeepBackups.ToString(CultureInfo.InvariantCulture),
             DefaultFtpUser = settings.DefaultFtpUser,
             DefaultFtpPassword = settings.DefaultFtpPassword,
             Notes = settings.Notes ?? string.Empty,
@@ -67,11 +79,32 @@ public sealed record SiteDraft
             return false;
         }
 
+        if (!int.TryParse(StaleAfterDays.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int stale) || stale is < 1 or > 365)
+        {
+            problem = "Stale after is a number of days from 1 to 365 - how old a robot's last good backup may be before it is flagged.";
+            return false;
+        }
+
+        if (!int.TryParse(ScheduleRetries.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int retries) || retries is < 0 or > 3)
+        {
+            problem = "Retries is a whole number from 0 to 3 - how often a scheduled backup tries again a robot that did not complete.";
+            return false;
+        }
+
+        if (!int.TryParse(KeepBackups.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int keep) || keep > 1000)
+        {
+            problem = "Keep is a whole number from 0 to 1000 complete backups per robot. 0 turns Prune old backups off.";
+            return false;
+        }
+
         settings = current with
         {
             Name = Name.Trim(),
             ArchiveRoot = archive,
             Concurrency = concurrency,
+            StaleAfterDays = stale,
+            ScheduleRetries = retries,
+            KeepBackups = keep,
             DefaultFtpUser = string.IsNullOrWhiteSpace(DefaultFtpUser) ? FtpCredentials.Default.User : DefaultFtpUser.Trim(),
             DefaultFtpPassword = DefaultFtpPassword,
             Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),

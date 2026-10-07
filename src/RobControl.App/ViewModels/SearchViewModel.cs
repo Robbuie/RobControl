@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+// UseWPF drops System.IO from the implicit usings.
+using System.IO;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -35,7 +37,20 @@ public sealed class SearchViewModel : ObservableObject
         SearchCommand = new AsyncRelayCommand(SearchAsync, () => !IsBusy && Query.Trim().Length > 0);
         NotCalledCommand = new AsyncRelayCommand(NotCalledAsync, () => !IsBusy);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
+        ExportHitsCommand = new RelayCommand(ExportHits, () => Hits.Count > 0);
+        ExportUsesCommand = new RelayCommand(ExportUses, () => Uses.Count > 0);
+        Hits.CollectionChanged += (_, _) => ExportHitsCommand.NotifyCanExecuteChanged();
+        Uses.CollectionChanged += (_, _) => ExportUsesCommand.NotifyCanExecuteChanged();
     }
+
+    /// <summary>A save-file picker: title, suggested name and filter in; path out, null when cancelled.</summary>
+    public Func<string, string, string, string?>? PickSaveFile { get; set; }
+
+    public Action<string>? ShowMessage { get; set; }
+
+    public IRelayCommand ExportHitsCommand { get; }
+
+    public IRelayCommand ExportUsesCommand { get; }
 
     public ObservableCollection<SearchHit> Hits { get; } = [];
 
@@ -252,6 +267,28 @@ public sealed class SearchViewModel : ObservableObject
 
     private static string Count(int n, string noun) =>
         string.Create(CultureInfo.CurrentCulture, $"{n} {noun}{(n == 1 ? string.Empty : "s")}");
+
+    private void ExportHits()
+    {
+        SearchHit[] hits = [.. Hits];
+        string? status = CsvExport.Save(PickSaveFile, ShowMessage, "Export search hits", _context().SiteName, "search",
+            () => BackupSearch.ToCsv(hits), string.Create(CultureInfo.CurrentCulture, $"Exported {hits.Length} hits to"));
+        if (status is not null)
+        {
+            Status = status;
+        }
+    }
+
+    private void ExportUses()
+    {
+        ProgramUse[] uses = [.. Uses];
+        string? status = CsvExport.Save(PickSaveFile, ShowMessage, "Export programs", _context().SiteName, "programs",
+            () => BackupSearch.ToCsv(uses), string.Create(CultureInfo.CurrentCulture, $"Exported {uses.Length} programs to"));
+        if (status is not null)
+        {
+            Status = status;
+        }
+    }
 
     private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> items)
     {

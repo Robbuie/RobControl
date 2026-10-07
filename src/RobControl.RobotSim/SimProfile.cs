@@ -36,6 +36,18 @@ public sealed record SimProfile
 
     public bool KclLocked { get; init; }
 
+    /// <summary>
+    /// Send an HTTP <c>Date</c> header this many seconds off the PC's clock. Null sends none - whether
+    /// a FANUC web server sends one at all is a Phase 0 question.
+    /// </summary>
+    public int? ClockOffsetSeconds { get; init; }
+
+    /// <summary>
+    /// The <c>Date</c> header carries the controller's local wall-clock time labelled GMT - what a
+    /// controller with no idea of time zones would plausibly do.
+    /// </summary>
+    public bool ClockIsLocalTime { get; init; }
+
     /// <summary>Where <see cref="FileName"/> was read from. Device folders are beside it.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string Folder { get; init; } = string.Empty;

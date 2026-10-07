@@ -121,15 +121,17 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
     Transports/Http/               ControllerWebClient - GET /MD/ files, KCL through the classifier
     Kcl/                           KclClassifier (read / write / never), page text extraction
     Controllers/                   ControllerIdentity + parser, ShowVarParser, CapabilityProbe
-    Backup/                        BackupRunner, FleetBackup, archive layout, manifest, name safety
+    Backup/                        BackupRunner, FleetBackup (retries), archive layout, manifest, name safety,
+                                   BackupVerifier (re-hash against the manifest), RetentionPlan (prune preview)
     History/                       LineDiff (Myers), BackupComparer, TextSniffer
     Trending/                      SignalAddress, register/IO parsers, RobotSampler, TrendRecorder
-    Events/                        IEventSink - how Core writes the record without knowing SQLite
-    Sites/                         SiteSettings (site.json), SiteCatalog, export file (SiteFile/SiteRobot)
+    Events/                        IEventSink - how Core writes the record without knowing SQLite; EventLogCsv
+    Sites/                         SiteSettings (site.json), SiteCatalog, export file (SiteFile/SiteRobot),
+                                   SiteBundle + SiteBundleImport (whole site as a zip, imported as a new site)
     Help/                          MarkdownLite - the README/CHANGELOG subset, parsed for Help > Read me
     Insight/                       Read-only views over the archive: ProgramListingParser + CrossReference,
                                    BackupSearch, AlarmLogParser + AlarmHistory, SettingsWatch,
-                                   FleetInventory, SiteReport (HTML)
+                                   FleetInventory + BackupHealth, NetworkInventory, SiteReport (HTML), Csv
     Persistence/                   FleetStore: robots, last probe, append-only Event, trend signals/samples
     Diagnostics/                   TraceLog (copied from NetControl)
 src/RobControl.App/                WPF front end - net10.0-windows
@@ -197,8 +199,20 @@ sites are **fully separate**:
 - Diffs are computed on text files, decided by content (`TextSniffer`) with the extension as a hint.
   Binary files are compared by hash only. `.DG` files are live snapshots and are flagged so the
   comparison can hide them.
-- No git dependency: git is not guaranteed on a plant laptop. Retention (pruning old backups) is a
-  later setting; nothing is ever deleted automatically today.
+- No git dependency: git is not guaranteed on a plant laptop.
+- **Nothing is ever deleted automatically.** Retention is a site setting (`keepBackups`, 0 = off)
+  that only feeds **Prune old backups**: `RetentionPlan` works out what would go (per robot, the
+  newest N complete backups and everything after the oldest of them stay; manifest-less folders are
+  never candidates), the person is asked with the count and size, and the folders go to the Recycle
+  Bin from the UI thread (the shell may show its own dialog). Keep it that way.
+- **Verify** (`BackupVerifier`) re-hashes against the manifest and reports missing, changed and
+  unlisted files. Read-only; it never repairs or renames.
+- **A site bundle** (`.robcontrol-bundle.zip`) is `bundle.json` + the site file + a `VACUUM INTO`
+  snapshot of the database + optionally `backups/<robot>/<stamp>/...` in the archive layout. Import
+  makes a new site with a fresh archive folder; every entry name goes through `IsSafeFileName` and
+  must land under the target; an existing backup folder is never written into; and the database is
+  used only if its robot list equals the checked site-file list - otherwise it would be a way round
+  the unicast and duplicate checks.
 
 ## Safety - this touches live production robots
 
@@ -255,6 +269,15 @@ exactly what a real controller does instead.
 - Passive mode works. Active mode is not built; `PassiveEndpoint` says so if PASV is refused.
 - Diagnostic files are at `/MD/<name>`; `SUMMARY.DG` names the cabinet, version, application,
   arm and F-number somewhere in it. `ControllerIdentityParser` searches rather than parses.
+- The web server sends an HTTP `Date` header, and it is the controller's clock - possibly local
+  wall-clock time labelled GMT, which `ClockReading.Compare` allows for by taking whichever reading
+  (UTC or local) is closer. No header means no clock check, silently. The remediation names
+  **System > Clock** on the pendant - confirm the menu path per software version.
+- The Host Comm TCP/IP settings are in some `.VA` listing under names like `$HOSTNAME`,
+  `$HOSTENT[n].$H_NAME/$H_ADDR`, `$TMI_ROUTER`, `$TMI_SNMASK`, an `*IP_ADDR` field and an
+  `*ETHER*`/`*MAC*` variable. `NetworkInventory` matches the last name component against patterns
+  and only keeps values shaped like what the name promises. **Run the first real backup through it**
+  and replace the patterns with the real names.
 - KCL is at `/KCL/<command>` with spaces as `%20` and `$`, `[`, `]` literal; the output is inside
   `<XMP>` (or `<PRE>`); a locked resource answers 401 or 403. KCL errors arrive inside a 200.
 - `SHOW VAR` puts the value after the last `=` on the line.
@@ -323,7 +346,9 @@ Every response saved as a fixture. Findings go into *Controller gotchas*.
 
 **Phase 1 - backup.** Robot list, capability probe, on-demand backup of one robot, then the fleet
 with a concurrency limit, scheduled backups while the app is running (tray), archive + index,
-status grid of last good backup per robot.
+status grid of last good backup per robot. *0.5.0 added:* backup health (OK / failing / stale /
+never, site `staleAfterDays`), retry of scheduled backups that did not complete (`scheduleRetries`,
+`retryDelayMinutes`), Verify backups, manual Prune old backups (`keepBackups`), site bundles.
 
 **Phase 2 - history.** Diff any two backups, golden reference per robot, drift report. Spot: weld
 schedules and gun data diffed as first-class items. *0.4.0 added, from backups only:* search with
@@ -353,7 +378,25 @@ Roboguide appears; restore assistant.
 
 ## Current state
 
-**0.4.0 - fleet insight from backups. Still never in front of a real controller.**
+**0.5.0 - backup health, verify, retries, prune, network view, clock check, site bundles, CSV
+exports. Still never in front of a real controller.**
+
+0.5.0 was written in a session with the .NET 10 SDK (Ubuntu's package) but no NuGet, so as before
+the real packages were stand-ins - with one improvement: **Microsoft.Data.Sqlite was a thin shim over
+the system libsqlite3**, so `FleetStore`, `SnapshotTo` (`VACUUM INTO`) and the bundle import ran
+against real SQLite, not a fake. xUnit and CommunityToolkit.Mvvm were small stand-ins. Core, the
+simulator and the suite (293 cases) built under warnings-as-errors and passed. The view models,
+`AppHost` and `Composition` compiled against the Mvvm stand-in **with `System.IO` removed from the
+implicit usings, as WPF does** - which is how the 0.4.0 break (Search, Alarms and Fleet view models
+using `File`/`IOException` without `using System.IO`) was found and fixed. XAML (the Fleet tab's
+lower half is now a TabControl: Setting changes / Network / Backup check; the site dialog's new
+Stale after / Retries / Keep rows) compiles only in CI.
+
+**Decided against, on purpose:** a subnet scan to discover robots. *Safety* says no broadcast,
+multicast or sweep from RobControl - discovery is NetControl's job. A NetControl-to-RobControl
+"add these robots" handoff is the way to get the same result without changing that rule.
+
+**0.4.0 - fleet insight from backups.**
 
 0.4.0 added Core/Insight and the Search, Alarms and Fleet tabs plus the site report. The Insight
 tests (`InsightTests`, with `FakeBackup` writing archive folders directly) passed against a
@@ -394,12 +437,15 @@ answering, and KCL locked; the sample tables were checked with Python's sqlite3 
 
 ### Pick up here
 
+0. **Push 0.5.0 and read the `verify` run** - it is the first compile of 0.4.0's and 0.5.0's XAML.
 1. **Run 0.3.x once over a 0.2.0 profile** and check the robots, history and event log arrived in
    "My site"; open Help > Read me in both themes.
 2. **Phase 0 with a real robot**: `robcontrol-probe <address>` on a V9.40 SpotTool robot, read
    the capture, commit it under `tests/Fixtures/`, and turn every assumption above that it confirms
    or breaks into a line under *Controller gotchas*. The probe fetches `NUMREG.VA` and `IOSTATE.DG`
    and prints how many registers and I/O points the trending parsers recognised in them - zero
-   means the format is not what was assumed, and the capture shows what it is instead.
+   means the format is not what was assumed, and the capture shows what it is instead. Also check
+   the capture's HTTP `Date` header against the pendant clock, and run the backup it takes through
+   the Fleet tab's Network view.
 3. Then the rest of Phase 1: tray icon so scheduled backups survive the window being closed, image
    backup freshness from the plant TFTP folder, and `--diagnose` in NetControl.

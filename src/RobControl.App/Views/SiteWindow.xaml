@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Site"
         SizeToContent="Height"
-        Width="500"
+        Width="540"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
@@ -15,6 +15,9 @@
       <ColumnDefinition Width="*" />
     </Grid.ColumnDefinitions>
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
@@ -46,26 +49,47 @@
              FontFamily="{DynamicResource mono}"
              ToolTip="How many robots are backed up or probed at the same time. Never more than one session per robot whatever this says." />
 
-    <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Style="{StaticResource PanelHead}" Text="FTP LOGIN FOR NEW ROBOTS" Margin="0,12,0,2" />
-    <TextBlock Grid.Row="5" Grid.ColumnSpan="2" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,4"
+    <TextBlock Grid.Row="4" Text="Stale after" VerticalAlignment="Center" />
+    <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+      <TextBox x:Name="StaleBox" Width="60" FontFamily="{DynamicResource mono}"
+               ToolTip="A robot whose last complete backup is older than this is flagged stale in the Fleet tab and the site report." />
+      <TextBlock Text="days" VerticalAlignment="Center" Margin="6,0,0,0" />
+    </StackPanel>
+
+    <TextBlock Grid.Row="5" Text="Retries" VerticalAlignment="Center" />
+    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+      <TextBox x:Name="RetriesBox" Width="60" FontFamily="{DynamicResource mono}"
+               ToolTip="How many times a scheduled backup tries again, a few minutes later, a robot that failed or came back partial. 0 is off. Backups started by hand are not retried." />
+      <TextBlock Text="for scheduled backups that do not complete" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="6,0,0,0" />
+    </StackPanel>
+
+    <TextBlock Grid.Row="6" Text="Keep" VerticalAlignment="Center" />
+    <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+      <TextBox x:Name="KeepBox" Width="60" FontFamily="{DynamicResource mono}"
+               ToolTip="Complete backups per robot that Fleet > Prune old backups keeps. 0 turns pruning off. Nothing is ever pruned automatically - it asks first, and sends to the Recycle Bin." />
+      <TextBlock Text="complete backups per robot when pruning (0 = off)" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="6,0,0,0" />
+    </StackPanel>
+
+    <TextBlock Grid.Row="7" Grid.ColumnSpan="2" Style="{StaticResource PanelHead}" Text="FTP LOGIN FOR NEW ROBOTS" Margin="0,12,0,2" />
+    <TextBlock Grid.Row="8" Grid.ColumnSpan="2" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,4"
                Text="What Add robot fills in at this site. Robots already in the list keep their own login." />
 
-    <TextBlock Grid.Row="6" Text="User" VerticalAlignment="Center" />
-    <TextBox Grid.Row="6" Grid.Column="1" x:Name="UserBox" Margin="0,3" />
+    <TextBlock Grid.Row="9" Text="User" VerticalAlignment="Center" />
+    <TextBox Grid.Row="9" Grid.Column="1" x:Name="UserBox" Margin="0,3" />
 
-    <TextBlock Grid.Row="7" Text="Password" VerticalAlignment="Center" />
-    <PasswordBox Grid.Row="7" Grid.Column="1" x:Name="PasswordInput" Margin="0,3"
+    <TextBlock Grid.Row="10" Text="Password" VerticalAlignment="Center" />
+    <PasswordBox Grid.Row="10" Grid.Column="1" x:Name="PasswordInput" Margin="0,3"
                  ToolTip="Stored in this site's site.json, and in a site export. Never written to a transcript or the event log." />
 
-    <TextBlock Grid.Row="8" Text="Notes" VerticalAlignment="Top" Margin="0,6,0,0" />
-    <TextBox Grid.Row="8" Grid.Column="1" x:Name="NotesBox" Margin="0,3" Height="64"
+    <TextBlock Grid.Row="11" Text="Notes" VerticalAlignment="Top" Margin="0,6,0,0" />
+    <TextBox Grid.Row="11" Grid.Column="1" x:Name="NotesBox" Margin="0,3" Height="64"
              AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
              ToolTip="Who to call, which VLAN, where the laptop plugs in - whatever is worth knowing next visit." />
 
-    <TextBlock Grid.Row="9" Grid.ColumnSpan="2" x:Name="ProblemText" Style="{StaticResource FaultText}"
+    <TextBlock Grid.Row="12" Grid.ColumnSpan="2" x:Name="ProblemText" Style="{StaticResource FaultText}"
                TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
 
-    <StackPanel Grid.Row="10" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+    <StackPanel Grid.Row="13" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
       <Button x:Name="OkButton" Content="OK" Style="{StaticResource PrimaryButton}" IsDefault="True" Click="OnOk" MinWidth="80" />
       <Button Content="Cancel" IsCancel="True" MinWidth="80" Margin="8,0,0,0" />
     </StackPanel>

@@ -428,6 +428,30 @@ public sealed class FleetStore : IEventSink, ITrendStore, IDisposable
         }
     }
 
+    /// <summary>
+    /// A consistent copy of the whole database - robots, probes, event log, trends - written to
+    /// <paramref name="path"/> while it stays open. Copying the file itself would miss whatever is
+    /// still in the write-ahead log.
+    /// </summary>
+    public void SnapshotTo(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        lock (_gate)
+        {
+            try
+            {
+                using SqliteCommand command = _connection.CreateCommand();
+                command.CommandText = "VACUUM INTO $path";
+                command.Parameters.AddWithValue("$path", Path.GetFullPath(path));
+                command.ExecuteNonQuery();
+            }
+            catch (SqliteException ex)
+            {
+                throw new PersistenceException($"The site database could not be copied to {path}: {ex.Message}", ex);
+            }
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)

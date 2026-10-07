@@ -34,10 +34,12 @@
         <MenuItem Header="Site s_ettings..." Command="{Binding EditSiteCommand}"
                   ToolTip="Name, archive folder, robots at once, the FTP login new robots start with, notes." />
         <Separator />
-        <MenuItem Header="_Import site file..." Command="{Binding ImportSiteCommand}"
-                  ToolTip="Makes a new site from a file exported on another PC - settings and robot list." />
+        <MenuItem Header="_Import site file or bundle..." Command="{Binding ImportSiteCommand}"
+                  ToolTip="Makes a new site from a file exported on another PC - a site file (settings and robot list) or a site bundle (that, plus event log, trends and backups). Never merges into a site you have." />
         <MenuItem Header="E_xport site file..." Command="{Binding ExportSiteCommand}"
-                  ToolTip="This site's settings and robot list in one file, to carry to another PC. It includes FTP passwords." />
+                  ToolTip="This site's settings and robot list in one small file, to carry to another PC. It includes FTP passwords." />
+        <MenuItem Header="Export site _bundle..." Command="{Binding ExportBundleCommand}"
+                  ToolTip="The whole site in one zip: settings, robot list, event log, trends and - if you say so - every backup. For moving a site to another laptop, or out of a plant with no network. It includes FTP passwords." />
         <Separator />
         <MenuItem Header="Site _report..." Command="{Binding Fleet.ReportCommand}"
                   ToolTip="One page for the visit, from the backups: backup status, alarms needing a job, frequent alarms, watched setting changes, notes." />
@@ -510,7 +512,11 @@
                   <CheckBox Content="Match case" IsChecked="{Binding CaseSensitive}" Margin="0,0,10,0" VerticalAlignment="Center" />
                   <CheckBox Content="Regex" IsChecked="{Binding IsRegex}" Margin="0,0,10,0" VerticalAlignment="Center" />
                   <Button Content="Programs nothing calls" Command="{Binding NotCalledCommand}"
-                          ToolTip="Programs no other program CALLs or RUNs, per robot. They may still be started by PNS, RSR, a style table, a macro or the PLC." />
+                          ToolTip="Programs no other program CALLs or RUNs, per robot. They may still be started by PNS, RSR, a style table, a macro or the PLC." Margin="0,0,10,0" />
+                  <Button Content="Export hits..." Command="{Binding ExportHitsCommand}" Margin="0,0,6,0"
+                          ToolTip="Every hit as CSV: robot, backup, file, program, line number and the line." />
+                  <Button Content="Export programs..." Command="{Binding ExportUsesCommand}"
+                          ToolTip="The program list on the right as CSV - where-used, or programs nothing calls." />
                 </WrapPanel>
                 <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
               </StackPanel>
@@ -567,7 +573,9 @@
                           ToolTip="Reads the alarm log (ERRALL.LS) in every backup of this site and merges them - a longer history than the controller keeps." />
                   <TextBlock Text="Period" VerticalAlignment="Center" Margin="0,0,6,0" />
                   <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" Width="100" Margin="0,0,10,0" />
-                  <CheckBox Content="Only battery, collision and mastering" IsChecked="{Binding OnlyConcerns}" VerticalAlignment="Center" />
+                  <CheckBox Content="Only battery, collision and mastering" IsChecked="{Binding OnlyConcerns}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                  <Button Content="Export CSV..." Command="{Binding ExportCsvCommand}"
+                          ToolTip="Every alarm in the period and filter shown, one per line - when, robot, code, message - for a pivot table or the maintenance planner." />
                 </WrapPanel>
                 <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
               </StackPanel>
@@ -632,7 +640,13 @@
                   <Button Content="Site report..." Command="{Binding ReportCommand}" Margin="0,0,10,0"
                           ToolTip="One page for the visit: backup status, alarms needing a job, frequent alarms, watched setting changes and site notes. Opens in the browser to print or save as PDF." />
                   <TextBlock Text="Changes in the last" VerticalAlignment="Center" Margin="0,0,6,0" />
-                  <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" Width="100" />
+                  <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" Width="100" Margin="0,0,16,0" />
+                  <Button Content="Verify backups" Command="{Binding VerifyCommand}" Margin="0,0,6,0"
+                          ToolTip="Re-reads each robot's newest backup from disk and checks every file against the SHA-256 recorded when it was taken. Reads the disk only - nothing is sent to a robot." />
+                  <CheckBox Content="All, not just the newest" IsChecked="{Binding VerifyAll}" VerticalAlignment="Center" Margin="0,0,10,0"
+                            ToolTip="Check every backup in the archive. Slower; worth doing before relying on an old one." />
+                  <Button Content="Prune old backups..." Command="{Binding PruneCommand}"
+                          ToolTip="Shows how many old backups are past the site's Keep setting, and on Yes sends them to the Recycle Bin. Never runs by itself. Off until Keep is set in Site settings." />
                 </WrapPanel>
                 <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
               </StackPanel>
@@ -640,8 +654,7 @@
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="*" MinHeight="80" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="*" MinHeight="80" />
+                  <RowDefinition Height="*" MinHeight="120" />
                 </Grid.RowDefinitions>
 
                 <DataGrid Grid.Row="0" ItemsSource="{Binding Rows}"
@@ -668,32 +681,112 @@
                         </Style>
                       </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridTextColumn Header="Last attempt" Width="80" Binding="{Binding LastOutcome, Mode=OneWay}" />
+                    <DataGridTextColumn Header="Backups" Width="140" Binding="{Binding HealthText, Mode=OneWay}">
+                      <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                          <Setter Property="ToolTip" Value="{Binding LastOutcome}" />
+                          <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsFailing}" Value="True">
+                              <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                              <Setter Property="FontWeight" Value="SemiBold" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsBad}" Value="True">
+                              <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                              <Setter Property="FontWeight" Value="SemiBold" />
+                            </DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
                   </DataGrid.Columns>
                 </DataGrid>
 
-                <TextBlock Grid.Row="1" Style="{StaticResource PanelHead}" Margin="2,10,0,4"
-                           Text="WATCHED SETTING CHANGES - FRAMES, PAYLOAD, MASTERING, REFERENCE POSITIONS, JOINT LIMITS, DCS, SOFTWARE VERSION" TextWrapping="Wrap" />
-
-                <DataGrid Grid.Row="2" ItemsSource="{Binding Changes}"
-                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="Backup" Width="125" Binding="{Binding NewerStamp, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Robot" Width="90" Binding="{Binding Robot, Mode=OneWay}" />
-                    <DataGridTextColumn Header="What" Width="105" Binding="{Binding Category, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Variable" Width="120" Binding="{Binding Variable, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                    <DataGridTextColumn Header="Before" Width="*" Binding="{Binding OldText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                    <DataGridTextColumn Header="After" Width="*" Binding="{Binding NewText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                  </DataGrid.Columns>
-                </DataGrid>
+                <!-- The lower half: three views of the same archive. Backup check fills when Verify runs. -->
+                <TabControl Grid.Row="1" Margin="0,8,0,0" SelectedIndex="{Binding DetailTab}">
+                  <TabItem Header="Setting changes"
+                           ToolTip="Watched setting changes between backups - frames, payload, mastering, reference positions, joint limits, DCS, software version.">
+                    <DataGrid ItemsSource="{Binding Changes}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Backup" Width="125" Binding="{Binding NewerStamp, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Robot" Width="90" Binding="{Binding Robot, Mode=OneWay}" />
+                        <DataGridTextColumn Header="What" Width="105" Binding="{Binding Category, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Variable" Width="120" Binding="{Binding Variable, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Before" Width="*" Binding="{Binding OldText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="After" Width="*" Binding="{Binding NewText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </TabItem>
+                  <TabItem Header="Network">
+                    <DockPanel>
+                      <DockPanel DockPanel.Dock="Top" Margin="0,4,0,4">
+                        <Button DockPanel.Dock="Right" Content="Export CSV..." Command="{Binding ExportNetworkCommand}" />
+                        <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="From each robot's newest complete backup - the variable listings, matched by name. Which variables hold the TCP/IP settings is still to be confirmed on a real controller; a value is only shown when it looks like an address." />
+                      </DockPanel>
+                      <DataGrid ItemsSource="{Binding Network}"
+                                AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                                GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                        <DataGrid.Columns>
+                          <DataGridTextColumn Header="Robot" Width="100" Binding="{Binding Robot, Mode=OneWay}" />
+                          <DataGridTextColumn Header="In robot list" Width="95" Binding="{Binding ListedAddress, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                          <DataGridTextColumn Header="Hostname" Width="100" Binding="{Binding Hostname, Mode=OneWay}" />
+                          <DataGridTextColumn Header="Addresses in backup" Width="150" Binding="{Binding AddressText, Mode=OneWay}">
+                            <DataGridTextColumn.ElementStyle>
+                              <Style TargetType="TextBlock" BasedOn="{StaticResource MonoText}">
+                                <Style.Triggers>
+                                  <DataTrigger Binding="{Binding AddressMismatch}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                                  </DataTrigger>
+                                </Style.Triggers>
+                              </Style>
+                            </DataGridTextColumn.ElementStyle>
+                          </DataGridTextColumn>
+                          <DataGridTextColumn Header="Subnet mask" Width="105" Binding="{Binding SubnetMask, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                          <DataGridTextColumn Header="Router" Width="95" Binding="{Binding Router, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                          <DataGridTextColumn Header="MAC" Width="130" Binding="{Binding Mac, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                          <DataGridTextColumn Header="Note" Width="*" Binding="{Binding Note, Mode=OneWay}" />
+                        </DataGrid.Columns>
+                      </DataGrid>
+                    </DockPanel>
+                  </TabItem>
+                  <TabItem Header="Backup check" ToolTip="Verify backups: every file against the SHA-256 in its manifest. Damaged backups first.">
+                    <DataGrid ItemsSource="{Binding Checks}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Robot" Width="100" Binding="{Binding Robot, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Backup" Width="170" Binding="{Binding FolderName, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Files" Width="50" Binding="{Binding FilesChecked, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Result" Width="*" Binding="{Binding Summary, Mode=OneWay}">
+                          <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                              <Setter Property="ToolTip" Value="{Binding FolderPath}" />
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsIntact}" Value="False">
+                                  <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                                  <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </TabItem>
+                </TabControl>
               </Grid>
             </DockPanel>
           </TabItem>
 
           <TabItem Header="Event log">
             <DockPanel Margin="8">
-              <CheckBox DockPanel.Dock="Top" Margin="2,0,0,6" Content="Only the selected robot" IsChecked="{Binding EventsForSelectedOnly}" />
+              <DockPanel DockPanel.Dock="Top" Margin="2,0,0,6">
+                <Button DockPanel.Dock="Right" Content="Export CSV..." Command="{Binding ExportEventsCommand}"
+                        ToolTip="The whole event log of this site - or the selected robot's - as CSV: every probe, backup, KCL read and trend session, and what came back. For plant IT, or a FANUC engineer asking what this laptop did on their network." />
+                <CheckBox Content="Only the selected robot" IsChecked="{Binding EventsForSelectedOnly}" VerticalAlignment="Center" />
+              </DockPanel>
               <DataGrid ItemsSource="{Binding Events}"
                         AutoGenerateColumns="False"
                         IsReadOnly="True"

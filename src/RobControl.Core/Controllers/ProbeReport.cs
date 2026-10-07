@@ -8,6 +8,9 @@ namespace RobControl.Core.Controllers;
 /// </summary>
 public sealed record ProbeReport(Robot Robot, DateTimeOffset Utc, ControllerIdentity Identity, IReadOnlyList<ProbeStep> Steps)
 {
+    /// <summary>The controller's clock against this PC's, when its web server sent a <c>Date</c> header.</summary>
+    public ClockReading? Clock { get; init; }
+
     public ProbeOutcome Ftp => Outcome(CapabilityProbe.FtpStep);
 
     public ProbeOutcome DiagnosticFiles => Outcome(CapabilityProbe.HttpStep);

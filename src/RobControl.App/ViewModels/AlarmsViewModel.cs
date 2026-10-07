@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+// UseWPF drops System.IO from the implicit usings.
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RobControl.Core.Insight;
@@ -24,7 +26,16 @@ public sealed class AlarmsViewModel : ObservableObject
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => _running is null);
+        ExportCsvCommand = new RelayCommand(ExportCsv, () => _all.Count > 0);
     }
+
+    /// <summary>A save-file picker: title, suggested name and filter in; path out, null when cancelled.</summary>
+    public Func<string, string, string, string?>? PickSaveFile { get; set; }
+
+    public Action<string>? ShowMessage { get; set; }
+
+    /// <summary>Every alarm in the period and filter shown, one per line.</summary>
+    public IRelayCommand ExportCsvCommand { get; }
 
     public static IReadOnlyList<string> Periods => InsightPeriods.All;
 
@@ -106,6 +117,18 @@ public sealed class AlarmsViewModel : ObservableObject
             _running.Dispose();
             _running = null;
             RefreshCommand.NotifyCanExecuteChanged();
+            ExportCsvCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private void ExportCsv()
+    {
+        List<AlarmEntry> entries = InPeriod();
+        string? status = CsvExport.Save(PickSaveFile, ShowMessage, "Export alarms", _context().SiteName, "alarms",
+            () => AlarmHistory.ToCsv(entries), string.Create(CultureInfo.CurrentCulture, $"Exported {entries.Count} alarms to"));
+        if (status is not null)
+        {
+            Status = status;
         }
     }
 

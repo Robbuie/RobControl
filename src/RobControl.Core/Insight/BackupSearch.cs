@@ -133,4 +133,32 @@ public static class BackupSearch
                 || TextSniffer.LooksLikeText(path),
         };
     }
+
+    /// <summary>Search hits as CSV: robot, backup, file, program, line number, the line itself.</summary>
+    public static string ToCsv(IEnumerable<SearchHit> hits)
+    {
+        ArgumentNullException.ThrowIfNull(hits);
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine("Robot,Backup,File,Program,Line,Text");
+        foreach (SearchHit h in hits)
+        {
+            csv.AppendLine(Csv.Row(h.Robot, h.Stamp, h.File, h.Program, Csv.Number(h.Line), h.Text));
+        }
+
+        return csv.ToString();
+    }
+
+    /// <summary>Where-used results as CSV: robot, program, its comment, and the lines that use the target.</summary>
+    public static string ToCsv(IEnumerable<ProgramUse> uses)
+    {
+        ArgumentNullException.ThrowIfNull(uses);
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine("Robot,Program,Comment,Lines");
+        foreach (ProgramUse u in uses)
+        {
+            csv.AppendLine(Csv.Row(u.Robot, u.Program, u.Comment, u.LineList));
+        }
+
+        return csv.ToString();
+    }
 }

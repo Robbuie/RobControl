@@ -8,6 +8,7 @@ internal static class Bytes
     {
         < 1024 => string.Create(CultureInfo.CurrentCulture, $"{bytes} B"),
         < 1024 * 1024 => string.Create(CultureInfo.CurrentCulture, $"{bytes / 1024.0:0.#} KB"),
-        _ => string.Create(CultureInfo.CurrentCulture, $"{bytes / (1024.0 * 1024.0):0.#} MB"),
+        < 1024L * 1024 * 1024 => string.Create(CultureInfo.CurrentCulture, $"{bytes / (1024.0 * 1024.0):0.#} MB"),
+        _ => string.Create(CultureInfo.CurrentCulture, $"{bytes / (1024.0 * 1024.0 * 1024.0):0.##} GB"),
     };
 }

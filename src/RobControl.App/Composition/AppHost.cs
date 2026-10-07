@@ -170,6 +170,9 @@ public sealed class AppHost : IDisposable, ISiteHost
         return new SiteImportResult(site, added, skipped);
     }
 
+    public SiteBundleImportResult ImportBundle(string path, IProgress<string>? progress = null, CancellationToken cancellationToken = default) =>
+        SiteBundleImport.Import(_catalog, path, _trace, progress, cancellationToken);
+
     public void Dispose()
     {
         if (_disposed)

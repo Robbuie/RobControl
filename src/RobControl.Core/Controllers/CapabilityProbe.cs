@@ -48,13 +48,14 @@ public sealed class CapabilityProbe
 
         var steps = new List<ProbeStep>();
         ControllerIdentity identity = ControllerIdentity.Unknown;
+        ClockReading? clock = null;
 
         (ProbeStep ftp, ControllerIdentity fromBanner) = await ProbeFtpAsync(robot, cancellationToken).ConfigureAwait(false);
         steps.Add(ftp);
 
         using (ControllerWebClient web = _webFactory(robot))
         {
-            (ProbeStep http, ControllerIdentity fromSummary) = await ProbeHttpAsync(web, cancellationToken).ConfigureAwait(false);
+            (ProbeStep http, ControllerIdentity fromSummary, clock) = await ProbeHttpAsync(web, cancellationToken).ConfigureAwait(false);
             steps.Add(http);
 
             // KCL is only worth asking once the web server has shown it is there at all. A locked
@@ -68,9 +69,16 @@ public sealed class CapabilityProbe
             identity = fromSummary.Merge(fromKcl).Merge(fromBanner);
         }
 
-        var report = new ProbeReport(robot, DateTimeOffset.UtcNow, identity, steps);
-        _events.Info(EventCategory.Probe, robot, $"Probed: {report.Summary}. {identity.Describe()}.",
-            string.Join('\n', steps.Select(s => $"{s.Name}: {s.Outcome} - {s.Message}")));
+        var report = new ProbeReport(robot, DateTimeOffset.UtcNow, identity, steps) { Clock = clock };
+        string detail = string.Join('\n', steps.Select(s => $"{s.Name}: {s.Outcome} - {s.Message}"));
+        if (clock is { IsOff: true })
+        {
+            _events.Warn(EventCategory.Probe, robot, $"Probed: {report.Summary}. {identity.Describe()}. {clock.Describe()}", detail);
+        }
+        else
+        {
+            _events.Info(EventCategory.Probe, robot, $"Probed: {report.Summary}. {identity.Describe()}.", detail);
+        }
         return report;
     }
 
@@ -108,7 +116,7 @@ public sealed class CapabilityProbe
         }
     }
 
-    private static async Task<(ProbeStep, ControllerIdentity)> ProbeHttpAsync(ControllerWebClient web, CancellationToken cancellationToken)
+    private static async Task<(ProbeStep, ControllerIdentity, ClockReading?)> ProbeHttpAsync(ControllerWebClient web, CancellationToken cancellationToken)
     {
         var watch = Stopwatch.StartNew();
         try
@@ -119,24 +127,31 @@ public sealed class CapabilityProbe
                 return (new ProbeStep(HttpStep, ProbeOutcome.Failed,
                     string.Create(CultureInfo.InvariantCulture, $"The web server answered {SummaryFile} with status {summary.StatusCode}."),
                     "Report this with the controller's software version - the file may have another name on it.",
-                    watch.Elapsed), ControllerIdentity.Unknown);
+                    watch.Elapsed), ControllerIdentity.Unknown, null);
             }
 
-            return (new ProbeStep(HttpStep, ProbeOutcome.Available,
-                string.Create(CultureInfo.InvariantCulture, $"{SummaryFile}: {summary.Body.Length} bytes."), null, watch.Elapsed),
-                ControllerIdentityParser.Parse(summary.Text));
+            // The web server's Date header is the one clock reading that costs no extra request.
+            ClockReading? clock = summary.ServerDate is { } date ? ClockReading.Compare(date, summary.ReceivedUtc) : null;
+            string message = string.Create(CultureInfo.InvariantCulture, $"{SummaryFile}: {summary.Body.Length} bytes.")
+                + (clock is null ? string.Empty : " " + clock.Describe());
+            string? remediation = clock is { IsOff: true }
+                ? "Alarm times and backup history from this robot will not line up with the others. Set the controller's clock on the pendant (System > Clock), and check the backup battery if it has drifted after a power-off."
+                : null;
+
+            return (new ProbeStep(HttpStep, ProbeOutcome.Available, message, remediation, watch.Elapsed),
+                ControllerIdentityParser.Parse(summary.Text), clock);
         }
         catch (HttpResourceLockedException ex)
         {
-            return (new ProbeStep(HttpStep, ProbeOutcome.Refused, ex.Message, ex.Remediation, watch.Elapsed), ControllerIdentity.Unknown);
+            return (new ProbeStep(HttpStep, ProbeOutcome.Refused, ex.Message, ex.Remediation, watch.Elapsed), ControllerIdentity.Unknown, null);
         }
         catch (ControllerHttpException ex) when (ex.StatusCode is null)
         {
-            return (new ProbeStep(HttpStep, ProbeOutcome.Unreachable, ex.Message, ex.Remediation, watch.Elapsed), ControllerIdentity.Unknown);
+            return (new ProbeStep(HttpStep, ProbeOutcome.Unreachable, ex.Message, ex.Remediation, watch.Elapsed), ControllerIdentity.Unknown, null);
         }
         catch (Exception ex) when (ex is RobControlException or HttpRequestException or IOException)
         {
-            return (new ProbeStep(HttpStep, ProbeOutcome.Failed, ex.Message, (ex as RobControlException)?.Remediation, watch.Elapsed), ControllerIdentity.Unknown);
+            return (new ProbeStep(HttpStep, ProbeOutcome.Failed, ex.Message, (ex as RobControlException)?.Remediation, watch.Elapsed), ControllerIdentity.Unknown, null);
         }
     }
 

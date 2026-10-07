@@ -89,9 +89,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SetScheduleCommand = new RelayCommand<string>(SetSchedule);
         NewSiteCommand = new RelayCommand(NewSite);
         EditSiteCommand = new RelayCommand(EditSite);
-        ImportSiteCommand = new RelayCommand(ImportSite);
+        ImportSiteCommand = new AsyncRelayCommand(ImportSiteAsync, () => !IsBusy);
+        ExportBundleCommand = new AsyncRelayCommand(ExportBundleAsync, () => !IsBusy);
         ExportSiteCommand = new RelayCommand(ExportSite);
         OpenSiteFolderCommand = new RelayCommand(() => OpenFolder?.Invoke(_site.Folder));
+        ExportEventsCommand = new RelayCommand(ExportEvents);
 
         _store.EventRecorded += OnEventRecorded;
         LoadRobots();
@@ -118,6 +120,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public Func<string, bool>? Confirm { get; set; }
 
     public Action<string>? ShowMessage { get; set; }
+
+    /// <summary>A save-file picker: title, suggested name and filter in; path out, null when cancelled.</summary>
+    public Func<string, string, string, string?>? PickSaveFile { get; set; }
 
     /// <summary>A folder picker, starting at the given folder. Null when cancelled.</summary>
     public Func<string, string?>? PickFolder { get; set; }
@@ -193,7 +198,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _settings.Notes,
         _archive,
         [.. Robots.Select(r => (r.Robot, r.Identity))],
-        _tool);
+        _tool,
+        _settings.StaleAfterDays,
+        _settings.KeepBackups,
+        _store);
 
     /// <summary>Called by the view when the list's selection changes - a DataGrid's SelectedItems cannot be bound.</summary>
     public void SetSelection(IEnumerable<RobotRowViewModel> rows)
@@ -259,6 +267,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// The whole event log of this site - or the selected robot's, when the tab shows only that - as
+    /// CSV. The record of everything RobControl has sent to a controller here.
+    /// </summary>
+    public IRelayCommand ExportEventsCommand { get; }
+
     public bool EventsForSelectedOnly
     {
         get => _eventsForSelectedOnly;
@@ -309,9 +323,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public IRelayCommand EditSiteCommand { get; }
 
-    public IRelayCommand ImportSiteCommand { get; }
+    public IAsyncRelayCommand ImportSiteCommand { get; }
 
     public IRelayCommand ExportSiteCommand { get; }
+
+    /// <summary>The whole site in one zip: settings, robots, event log, trends and - if asked - every backup.</summary>
+    public IAsyncRelayCommand ExportBundleCommand { get; }
 
     public IRelayCommand OpenSiteFolderCommand { get; }
 
@@ -361,7 +378,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
                         _store.Info(EventCategory.Backup, null, "Scheduled fleet backup starting.");
                         PlanNextRun();
-                        _ = BackupAllCommand.ExecuteAsync(null);
+
+                        // Only a scheduled run retries: nobody is watching it, and a robot that was
+                        // rebooting at 3 am usually answers five minutes later.
+                        _ = BackupAsync([.. Robots], _settings.ScheduleRetries);
                     });
                 }
             }
@@ -587,7 +607,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private Task BackupAllAsync() => BackupAsync([.. Robots]);
 
-    private async Task BackupAsync(IReadOnlyList<RobotRowViewModel> rows)
+    private async Task BackupAsync(IReadOnlyList<RobotRowViewModel> rows, int retries = 0)
     {
         List<RobotRowViewModel> todo = [.. rows.Where(r => !r.IsBusy)];
         if (todo.Count == 0)
@@ -648,7 +668,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     Status = string.Create(CultureInfo.CurrentCulture,
                         $"{finished} of {todo.Count} done, {complete} complete. Last: {robot.Name} - {result.Manifest.Summary}");
                 }),
-                token), token).ConfigureAwait(true);
+                token,
+                retries,
+                TimeSpan.FromMinutes(_settings.RetryDelayMinutes),
+                (again, delay) => _ui.Post(() =>
+                {
+                    string names = string.Join(", ", again.Select(r => r.Name));
+                    _store.Info(EventCategory.Backup, null, string.Create(CultureInfo.InvariantCulture,
+                        $"Retrying {again.Count} robot(s) in {delay.TotalMinutes:0} min: {names}"));
+                    foreach (Robot robot in again)
+                    {
+                        RobotRowViewModel row = byRobot[robot];
+                        row.IsBusy = true;
+                        row.Activity = string.Create(CultureInfo.CurrentCulture, $"Retry at {DateTime.Now.Add(delay):HH:mm}...");
+                        finished--;
+                    }
+
+                    Status = string.Create(CultureInfo.CurrentCulture,
+                        $"{again.Count} robot(s) did not complete; trying them again in {delay.TotalMinutes:0} min: {names}");
+                })), token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -671,6 +709,29 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
 
             End();
+        }
+    }
+
+    private void ExportEvents()
+    {
+        Robot? robot = EventsForSelectedOnly ? Selected?.Robot : null;
+        IReadOnlyList<RobotEvent> events;
+        try
+        {
+            events = _store.RecentEvents(int.MaxValue, robot);
+        }
+        catch (Exception ex) when (ex is RobControlException or InvalidOperationException or System.Data.Common.DbException)
+        {
+            ShowMessage?.Invoke($"The event log could not be read: {ex.Message}");
+            return;
+        }
+
+        string what = robot is null ? "event log" : $"{ArchiveNames.RobotFolder(robot.Name)} event log";
+        string? status = CsvExport.Save(PickSaveFile, ShowMessage, "Export event log", _site.Name, what,
+            () => EventLogCsv.ToCsv(events), string.Create(CultureInfo.CurrentCulture, $"Exported {events.Count} events to"));
+        if (status is not null)
+        {
+            Status = status;
         }
     }
 
@@ -953,10 +1014,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             + (passwords ? " It contains FTP passwords - keep it like a list of logins." : string.Empty);
     }
 
-    private void ImportSite()
+    private async Task ImportSiteAsync()
     {
         if (PickSiteFileToOpen?.Invoke() is not { } path)
         {
+            return;
+        }
+
+        if (path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            await ImportBundleAsync(path).ConfigureAwait(true);
             return;
         }
 
@@ -973,9 +1040,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         ReloadSites();
         string summary = string.Create(CultureInfo.CurrentCulture, $"Imported '{result.Site.Name}' with {result.Added} robot(s).")
-            + (result.Skipped.Count == 0
-                ? string.Empty
-                : Environment.NewLine + Environment.NewLine + "Not imported:" + Environment.NewLine + "- " + string.Join(Environment.NewLine + "- ", result.Skipped))
+            + NotImported(result.Skipped)
             + Environment.NewLine + Environment.NewLine
             + $"Backups go to {result.Site.Settings.ArchiveRoot}. Switch to it now?";
 
@@ -983,6 +1048,103 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             SwitchTo(result.Site.Key);
         }
+    }
+
+    private async Task ImportBundleAsync(string path)
+    {
+        CancellationToken token = Begin();
+        SiteBundleImportResult? result = null;
+        try
+        {
+            Status = $"Importing {Path.GetFileName(path)}...";
+            var progress = new Progress<string>(item => Status = $"Importing: {item}");
+            result = await Task.Run(() => _sites.ImportBundle(path, progress, token), token).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Import stopped. The new site is in the Site menu with what had been unpacked; remove its folder if it is not wanted.";
+        }
+        catch (Exception ex) when (ex is RobControlException or IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            ShowMessage?.Invoke(ex.Message + (ex is RobControlException { Remediation: { } fix } ? Environment.NewLine + Environment.NewLine + fix : string.Empty));
+        }
+        finally
+        {
+            End();
+        }
+
+        ReloadSites();
+        if (result is null)
+        {
+            return;
+        }
+
+        Status = string.Create(CultureInfo.CurrentCulture, $"Imported '{result.Site.Name}' from {Path.GetFileName(path)}.");
+        string summary = string.Create(CultureInfo.CurrentCulture, $"Imported '{result.Site.Name}': {result.Robots} robot(s), ")
+            + (result.History ? "its event log and trends, " : "no event log or trends, ")
+            + string.Create(CultureInfo.CurrentCulture, $"{result.BackupFolders} backup folder(s).")
+            + NotImported(result.Skipped)
+            + Environment.NewLine + Environment.NewLine
+            + $"Its backups are in {result.Site.Settings.ArchiveRoot}. Switch to it now?";
+
+        if (Confirm?.Invoke(summary) == true)
+        {
+            SwitchTo(result.Site.Key);
+        }
+    }
+
+    private async Task ExportBundleAsync()
+    {
+        string suggested = ArchiveNames.RobotFolder(_site.Name) + SiteBundle.Extension;
+        if (PickSaveFile?.Invoke("Export site bundle", suggested, "RobControl site bundle (*.robcontrol-bundle.zip)|*.robcontrol-bundle.zip") is not { } path)
+        {
+            return;
+        }
+
+        bool includeBackups = Confirm?.Invoke(
+            $"Put every backup in {_archive.Root} into the bundle as well?\n\n"
+            + "Yes: the other PC gets the full history, backups included. The file can be large.\n"
+            + "No: settings, robot list, event log and trends only.") == true;
+
+        List<Robot> robots = [.. Robots.Select(r => r.Robot)];
+        CancellationToken token = Begin();
+        try
+        {
+            var progress = new Progress<string>(item => Status = $"Bundling: {item}");
+            SiteBundleInfo info = await Task.Run(
+                () => SiteBundle.Export(_site, robots, _store, _archive, includeBackups, path, _tool, progress, token), token).ConfigureAwait(true);
+
+            _store.Info(EventCategory.App, null, string.Create(CultureInfo.InvariantCulture,
+                $"Site bundle exported to {path}: {info.Robots} robot(s), {info.BackupFolders} backup folder(s), {info.BackupBytes} bytes of backups."));
+            bool passwords = _settings.DefaultFtpPassword.Length > 0 || robots.Any(r => r.Ftp.Password.Length > 0);
+            Status = string.Create(CultureInfo.CurrentCulture, $"Exported {_site.Name} to {path}: {info.Robots} robot(s), {info.BackupFolders} backup folder(s).")
+                + (passwords ? " It contains FTP passwords - keep it like a list of logins." : string.Empty);
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Bundle export stopped. Nothing was written.";
+        }
+        catch (RobControlException ex)
+        {
+            ShowMessage?.Invoke(ex.Message + (ex.Remediation is null ? string.Empty : Environment.NewLine + Environment.NewLine + ex.Remediation));
+        }
+        finally
+        {
+            End();
+        }
+    }
+
+    private static string NotImported(IReadOnlyList<string> skipped)
+    {
+        if (skipped.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        // A message box with a thousand lines is no use to anyone; the event log has the full list.
+        IEnumerable<string> shown = skipped.Take(12);
+        string more = skipped.Count > 12 ? string.Create(CultureInfo.CurrentCulture, $"{Environment.NewLine}...and {skipped.Count - 12} more - see the event log.") : string.Empty;
+        return Environment.NewLine + Environment.NewLine + "Not imported:" + Environment.NewLine + "- " + string.Join(Environment.NewLine + "- ", shown) + more;
     }
 
     private void DiagnoseNetwork()
@@ -1063,5 +1225,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StopCommand.NotifyCanExecuteChanged();
         CompareCommand.NotifyCanExecuteChanged();
         DiagnoseNetworkCommand.NotifyCanExecuteChanged();
+        ImportSiteCommand.NotifyCanExecuteChanged();
+        ExportBundleCommand.NotifyCanExecuteChanged();
     }
 }

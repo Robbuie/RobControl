@@ -27,4 +27,10 @@ public interface ISiteHost
     /// <see cref="Core.RobControlException"/> with the reason.
     /// </summary>
     SiteImportResult Import(string path);
+
+    /// <summary>
+    /// Makes a new site from a site bundle - settings, robots, history and backups - without opening
+    /// it. Slow with backups inside: call it off the UI thread. Throws <see cref="Core.RobControlException"/>.
+    /// </summary>
+    SiteBundleImportResult ImportBundle(string path, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
 }

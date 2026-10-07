@@ -23,6 +23,9 @@ public partial class SiteWindow : Window
         NameBox.Text = draft.Name;
         ArchiveBox.Text = draft.ArchiveRoot;
         ConcurrencyBox.Text = draft.Concurrency;
+        StaleBox.Text = draft.StaleAfterDays;
+        RetriesBox.Text = draft.ScheduleRetries;
+        KeepBox.Text = draft.KeepBackups;
         UserBox.Text = draft.DefaultFtpUser;
         PasswordInput.Password = draft.DefaultFtpPassword;
         NotesBox.Text = draft.Notes;
@@ -52,6 +55,9 @@ public partial class SiteWindow : Window
             Name = NameBox.Text,
             ArchiveRoot = ArchiveBox.Text,
             Concurrency = ConcurrencyBox.Text,
+            StaleAfterDays = StaleBox.Text,
+            ScheduleRetries = RetriesBox.Text,
+            KeepBackups = KeepBox.Text,
             DefaultFtpUser = UserBox.Text,
             DefaultFtpPassword = PasswordInput.Password,
             Notes = NotesBox.Text,

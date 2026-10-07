@@ -345,8 +345,15 @@ public sealed class SimController : IAsyncDisposable
             ? Refuse(requestLine)
             : Route(target);
 
+        string date = string.Empty;
+        if (_profile.ClockOffsetSeconds is { } offset)
+        {
+            DateTime clock = (_profile.ClockIsLocalTime ? DateTime.Now : DateTime.UtcNow).AddSeconds(offset);
+            date = "Date: " + clock.ToString("R", CultureInfo.InvariantCulture) + "\r\n";
+        }
+
         string head = string.Create(CultureInfo.InvariantCulture,
-            $"HTTP/1.1 {status} {reason}\r\nContent-Type: {type}\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n");
+            $"HTTP/1.1 {status} {reason}\r\nContent-Type: {type}\r\nContent-Length: {body.Length}\r\n{date}Connection: close\r\n\r\n");
         await stream.WriteAsync(Wire.GetBytes(head), cancellationToken).ConfigureAwait(false);
         await stream.WriteAsync(body, cancellationToken).ConfigureAwait(false);
     }

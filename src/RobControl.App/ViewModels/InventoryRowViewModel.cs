@@ -38,5 +38,16 @@ public sealed class InventoryRowViewModel(InventoryRow row, DateTimeOffset now, 
 
     public string LastOutcome => Row.LastOutcome;
 
+    public BackupHealth Health => Row.Health(now, staleAfterDays);
+
+    /// <summary>"OK", "Last 2 attempts failed", "Stale - over 7 d", "Never backed up".</summary>
+    public string HealthText => Row.HealthText(now, staleAfterDays);
+
+    /// <summary>Stale or never: shown in the fault colour.</summary>
+    public bool IsBad => Health is BackupHealth.Stale or BackupHealth.Never;
+
+    /// <summary>Recent attempts failing while the last good backup is still in date: shown in the warning colour.</summary>
+    public bool IsFailing => Health == BackupHealth.Failing;
+
     public int BackupCount => Row.BackupCount;
 }

@@ -46,7 +46,8 @@ public static class FleetInventory
                 lastComplete?.Manifest.StartedUtc,
                 lastAttempt?.Manifest.StartedUtc,
                 lastAttempt is null ? "Never backed up" : lastAttempt.Manifest.Outcome.ToString(),
-                sets.Count));
+                sets.Count,
+                FailedSinceLastComplete: sets.TakeWhile(s => s.Manifest.Outcome != BackupOutcome.Complete).Count()));
         }
 
         return rows;
@@ -57,35 +58,20 @@ public static class FleetInventory
     {
         ArgumentNullException.ThrowIfNull(rows);
         var csv = new StringBuilder();
-        csv.AppendLine("Robot,Address,Line,Controller,Model,Software,Application,F-number,Last complete backup,Last backup attempt,Last outcome,Backups");
+        csv.AppendLine("Robot,Address,Line,Controller,Model,Software,Application,F-number,Last complete backup,Last backup attempt,Last outcome,Backups,Failed since last complete");
         foreach (InventoryRow r in rows)
         {
             csv.AppendLine(string.Join(",",
                 Quote(r.Robot), Quote(r.Address), Quote(r.Line), Quote(r.Controller), Quote(r.Model), Quote(r.Software),
                 Quote(r.Application), Quote(r.FNumber), Quote(Time(r.LastCompleteUtc)), Quote(Time(r.LastAttemptUtc)),
-                Quote(r.LastOutcome), r.BackupCount.ToString(CultureInfo.InvariantCulture)));
+                Quote(r.LastOutcome), r.BackupCount.ToString(CultureInfo.InvariantCulture),
+                r.FailedSinceLastComplete.ToString(CultureInfo.InvariantCulture)));
         }
 
         return csv.ToString();
     }
 
-    private static string Time(DateTimeOffset? utc) =>
-        utc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? string.Empty;
+    private static string Time(DateTimeOffset? utc) => Csv.Time(utc);
 
-    /// <summary>
-    /// A CSV field. A leading = + - @ is prefixed with a quote mark so a robot name from a site file
-    /// can never become a spreadsheet formula.
-    /// </summary>
-    internal static string Quote(string? value)
-    {
-        string text = value ?? string.Empty;
-        if (text.Length > 0 && "=+-@".Contains(text[0], StringComparison.Ordinal))
-        {
-            text = "'" + text;
-        }
-
-        return text.IndexOfAny([',', '"', '\n', '\r']) >= 0 || text.StartsWith('\'')
-            ? "\"" + text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\""
-            : text;
-    }
+    internal static string Quote(string? value) => Csv.Field(value);
 }

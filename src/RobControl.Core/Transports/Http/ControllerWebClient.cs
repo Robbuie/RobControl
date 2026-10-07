@@ -92,7 +92,11 @@ public sealed class ControllerWebClient : IDisposable
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             byte[] body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            var exchange = new HttpExchange(path, (int)response.StatusCode, response.Content.Headers.ContentType?.ToString(), body, watch.Elapsed);
+            var exchange = new HttpExchange(path, (int)response.StatusCode, response.Content.Headers.ContentType?.ToString(), body, watch.Elapsed)
+            {
+                ServerDate = response.Headers.Date,
+                ReceivedUtc = DateTimeOffset.UtcNow,
+            };
 
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {

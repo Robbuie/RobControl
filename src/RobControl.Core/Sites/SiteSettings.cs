@@ -53,6 +53,33 @@ public sealed record SiteSettings
     [JsonPropertyName("defaultFtpPassword")]
     public string DefaultFtpPassword { get; init; } = string.Empty;
 
+    /// <summary>
+    /// A robot whose last complete backup is older than this many days is flagged stale - in the
+    /// Fleet tab and the site report. A week suits a weekly visit or a daily schedule.
+    /// </summary>
+    [JsonPropertyName("staleAfterDays")]
+    public int StaleAfterDays { get; init; } = 7;
+
+    /// <summary>
+    /// How many times a scheduled fleet backup tries again, a few minutes later, the robots whose
+    /// backup failed or came back partial. Backups started by hand are never retried - the person
+    /// is there to see the result.
+    /// </summary>
+    [JsonPropertyName("scheduleRetries")]
+    public int ScheduleRetries { get; init; } = 1;
+
+    /// <summary>Minutes between a scheduled backup and its retry.</summary>
+    [JsonPropertyName("retryDelayMinutes")]
+    public int RetryDelayMinutes { get; init; } = 5;
+
+    /// <summary>
+    /// Complete backups per robot that <b>Prune old backups</b> keeps. Zero means the command is off.
+    /// Nothing is ever pruned automatically: the command shows what would go and asks first, and
+    /// what it removes goes to the Recycle Bin.
+    /// </summary>
+    [JsonPropertyName("keepBackups")]
+    public int KeepBackups { get; init; }
+
     /// <summary>Anything worth knowing next visit: who to call, which VLAN, where the laptop plugs in.</summary>
     [JsonPropertyName("notes")]
     public string? Notes { get; init; }
@@ -68,6 +95,10 @@ public sealed record SiteSettings
         Concurrency = Math.Clamp(Concurrency, 1, 8),
         ScheduleHours = Math.Clamp(ScheduleHours, 0, 168),
         TrendRetentionDays = Math.Clamp(TrendRetentionDays, 1, 3650),
+        StaleAfterDays = Math.Clamp(StaleAfterDays, 1, 365),
+        ScheduleRetries = Math.Clamp(ScheduleRetries, 0, 3),
+        RetryDelayMinutes = Math.Clamp(RetryDelayMinutes, 1, 60),
+        KeepBackups = Math.Clamp(KeepBackups, 0, 1000),
         DefaultFtpUser = string.IsNullOrWhiteSpace(DefaultFtpUser) ? FtpCredentials.Default.User : DefaultFtpUser.Trim(),
         DefaultFtpPassword = DefaultFtpPassword ?? string.Empty,
         Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),

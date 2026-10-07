@@ -49,10 +49,16 @@ public static class SiteReport
 
         int robots = data.Inventory.Count;
         int stale = data.Inventory.Count(r => r.BackupAgeDays(data.GeneratedUtc) is not { } d || d > data.StaleAfterDays);
+        int failing = data.Inventory.Count(r => r.Health(data.GeneratedUtc, data.StaleAfterDays) == BackupHealth.Failing);
         int alarms = data.RobotAlarms.Sum(r => r.Count);
         html.Append("<div class=\"tiles\">");
         Tile(html, robots.ToString(culture), "robots");
         Tile(html, stale.ToString(culture), $"without a complete backup in {data.StaleAfterDays} days", stale > 0 ? "bad" : "ok");
+        if (failing > 0)
+        {
+            Tile(html, failing.ToString(culture), "whose latest backup attempts failed", "warn");
+        }
+
         Tile(html, alarms.ToString(culture), "alarms in the period");
         Tile(html, data.ConcernAlarms.Count.ToString(culture), "battery / collision / mastering alarms", data.ConcernAlarms.Count > 0 ? "warn" : "ok");
         Tile(html, data.SettingChanges.Count.ToString(culture), "watched setting changes", data.SettingChanges.Count > 0 ? "warn" : "ok");
@@ -70,15 +76,21 @@ public static class SiteReport
         }
         else
         {
-            html.Append("<table><tr><th>Robot</th><th>Address</th><th>Line</th><th>Controller</th><th>Model</th><th>Software</th><th>Last complete backup</th><th>Age</th><th>Last attempt</th></tr>");
+            html.Append("<table><tr><th>Robot</th><th>Address</th><th>Line</th><th>Controller</th><th>Model</th><th>Software</th><th>Last complete backup</th><th>Age</th><th>Backups</th></tr>");
             foreach (InventoryRow r in data.Inventory)
             {
                 double? age = r.BackupAgeDays(data.GeneratedUtc);
                 string ageClass = age is not { } a || a > data.StaleAfterDays ? "bad" : "ok";
                 string ageText = age is { } days ? (days < 1 ? "today" : string.Create(culture, $"{days:0} d")) : "none";
+                string healthClass = r.Health(data.GeneratedUtc, data.StaleAfterDays) switch
+                {
+                    BackupHealth.Ok => "ok",
+                    BackupHealth.Failing => "warn",
+                    _ => "bad",
+                };
                 html.Append(CultureInfo.InvariantCulture,
                     $"<tr><td>{E(r.Robot)}</td><td><code>{E(r.Address)}</code></td><td>{E(r.Line)}</td><td>{E(r.Controller)}</td><td>{E(r.Model)}</td><td>{E(r.Software)}</td>"
-                    + $"<td>{E(When(r.LastCompleteUtc, culture))}</td><td class=\"{ageClass}\">{E(ageText)}</td><td>{E(r.LastOutcome)}</td></tr>");
+                    + $"<td>{E(When(r.LastCompleteUtc, culture))}</td><td class=\"{ageClass}\">{E(ageText)}</td><td class=\"{healthClass}\">{E(r.HealthText(data.GeneratedUtc, data.StaleAfterDays))}</td></tr>");
             }
 
             html.Append("</table>");

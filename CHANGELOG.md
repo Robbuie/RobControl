@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.5.0 - backup health, verify, bundles and exports
+
+Nothing here sends anything new to a robot except the clock check, which reads a header the web
+server already sends with the probe's existing request.
+
+- **Backup health** on the Fleet tab and in the site report: OK, *last attempt failed* (amber - the
+  last good backup is in date but the attempts since have not completed), stale, or never. The stale
+  limit is now a site setting (**Stale after**, 7 days by default).
+- **Scheduled backups retry**: a robot whose scheduled backup failed or came back partial is tried
+  again five minutes later (**Retries** in site settings, 1 by default). Backups started by hand are
+  not retried. Every attempt keeps its own folder and event-log line.
+- **Verify backups** (Fleet tab): re-reads backups from disk and checks every file against the
+  SHA-256 in its manifest. Damaged backups are listed first and marked *do not restore*;
+  interrupted and manifest-less folders are listed too.
+- **Prune old backups** (Fleet tab), off until **Keep** is set in site settings: keeps the newest
+  *Keep* complete backups per robot and everything after them, says what would go, and only on Yes
+  sends it to the Recycle Bin. Nothing is pruned automatically.
+- **Network** view on the Fleet tab: hostname, IP addresses, subnet mask, router and MAC from each
+  robot's newest backup, with an address the backup never mentions shown in amber. Found by variable
+  name - to be confirmed against real controllers. CSV export with the source of every value.
+- **Controller clock**: the probe compares the controller's clock with this PC's and warns when it
+  is more than two minutes off - alarm times and history from that robot would not line up.
+- **Site bundle**: **Site > Export site bundle** writes the whole site to one zip - settings, robot
+  list, event log, trends and, if asked, every backup. **Import site file or bundle** takes either
+  and always makes a new site; robots are checked as if typed in, entry names in the zip are
+  checked like file names from a controller, and existing backup folders are never overwritten.
+- **CSV exports** for alarms, search hits, where-used and the event log (the record of everything
+  RobControl has sent to a controller at the site - for plant IT).
+- **Fixed:** the Search, Alarms and Fleet tabs from 0.4.0 used `File` and `IOException` without
+  `using System.IO`, which a WPF project does not get implicitly, so the 0.4.0 app would not build.
+
 ## 0.4.0 - fleet insight from backups
 
 Everything here reads the backups already on disk - nothing new is sent to a robot.

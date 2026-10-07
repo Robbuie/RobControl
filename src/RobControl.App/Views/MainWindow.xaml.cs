@@ -19,6 +19,9 @@ public partial class MainWindow : Window
 {
     private const string SiteFileFilter = "RobControl site (*.robcontrol-site.json)|*.robcontrol-site.json|JSON (*.json)|*.json|All files (*.*)|*.*";
 
+    private const string ImportFilter = "RobControl site or bundle (*.robcontrol-site.json;*.robcontrol-bundle.zip)|*.robcontrol-site.json;*.robcontrol-bundle.zip|"
+        + "Site bundle (*.zip)|*.zip|JSON (*.json)|*.json|All files (*.*)|*.*";
+
     private bool _checkingForUpdates;
     private DocumentWindow? _readme;
     private DocumentWindow? _whatsNew;
@@ -58,6 +61,13 @@ public partial class MainWindow : Window
             old.Fleet.PickSaveFile = null;
             old.Fleet.OpenFile = null;
             old.Fleet.ShowMessage = null;
+            old.Fleet.Confirm = null;
+            old.PickSaveFile = null;
+            old.Alarms.PickSaveFile = null;
+            old.Alarms.ShowMessage = null;
+            old.Search.PickSaveFile = null;
+            old.Search.ShowMessage = null;
+            old.Fleet.RemoveFolder = null;
         }
 
         if (e.NewValue is MainViewModel viewModel)
@@ -79,6 +89,18 @@ public partial class MainWindow : Window
             viewModel.Fleet.PickSaveFile = PickSaveFile;
             viewModel.Fleet.OpenFile = path => Shell.Open(this, path);
             viewModel.Fleet.ShowMessage = viewModel.ShowMessage;
+            viewModel.Fleet.Confirm = viewModel.Confirm;
+            viewModel.PickSaveFile = PickSaveFile;
+            viewModel.Alarms.PickSaveFile = PickSaveFile;
+            viewModel.Alarms.ShowMessage = viewModel.ShowMessage;
+            viewModel.Search.PickSaveFile = PickSaveFile;
+            viewModel.Search.ShowMessage = viewModel.ShowMessage;
+
+            // To the Recycle Bin, not gone: a prune of the wrong site can be put back from Explorer.
+            viewModel.Fleet.RemoveFolder = folder => Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(
+                folder,
+                Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
         }
     }
 
@@ -96,7 +118,7 @@ public partial class MainWindow : Window
 
     private string? PickSiteFileToOpen()
     {
-        var dialog = new OpenFileDialog { Title = "Import site", Filter = SiteFileFilter, CheckFileExists = true };
+        var dialog = new OpenFileDialog { Title = "Import site", Filter = ImportFilter, CheckFileExists = true };
         return dialog.ShowDialog(this) == true ? dialog.FileName : null;
     }
 

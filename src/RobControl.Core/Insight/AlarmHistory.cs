@@ -73,4 +73,27 @@ public static class AlarmHistory
                     times.Count > 0 ? times[0] : null, times.Count > 0 ? times[^1] : null, mtb, g.Count(e => e.Concern != AlarmConcern.None));
             })
             .OrderByDescending(s => s.Count).ThenBy(s => s.Robot, StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>
+    /// Every alarm given, one per line, oldest first: when (the controller's own clock), robot, code,
+    /// message, and whether it means a job. For a pivot table, or to send to whoever plans maintenance.
+    /// </summary>
+    public static string ToCsv(IEnumerable<AlarmEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine("When,Robot,Alarm,Facility,Message,Needs a job");
+        foreach (AlarmEntry e in entries.OrderBy(e => e.When ?? DateTime.MinValue).ThenBy(e => e.Robot, StringComparer.OrdinalIgnoreCase))
+        {
+            csv.AppendLine(Csv.Row(
+                e.When?.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+                e.Robot,
+                e.Code,
+                e.Facility,
+                e.Message,
+                e.Concern == AlarmConcern.None ? string.Empty : AlarmConcerns.Describe(e.Concern)));
+        }
+
+        return csv.ToString();
+    }
 }

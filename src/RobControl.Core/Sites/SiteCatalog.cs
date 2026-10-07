@@ -200,7 +200,15 @@ public sealed class SiteCatalog
         ArgumentNullException.ThrowIfNull(robots);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var file = new SiteFile
+        Write(path, ToFile(site, robots, tool));
+    }
+
+    /// <summary>The site file <see cref="Export"/> would write, without writing it - for a bundle.</summary>
+    public static SiteFile ToFile(Site site, IEnumerable<Robot> robots, string? tool = null)
+    {
+        ArgumentNullException.ThrowIfNull(site);
+        ArgumentNullException.ThrowIfNull(robots);
+        return new SiteFile
         {
             Format = SiteFile.FormatName,
             Version = SiteFile.CurrentVersion,
@@ -209,22 +217,35 @@ public sealed class SiteCatalog
             Settings = site.Settings,
             Robots = [.. robots.Select(SiteRobot.From)],
         };
-
-        Write(path, file);
     }
+
+    internal static string ToJson(SiteFile file) => JsonSerializer.Serialize(file, WriteJson);
 
     /// <summary>Reads an export, or says in one sentence why it is not one.</summary>
     public static SiteFile ReadExport(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        SiteFile? file;
+        string json;
         try
         {
-            file = JsonSerializer.Deserialize<SiteFile>(File.ReadAllText(path), ReadJson);
+            json = File.ReadAllText(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new SiteException($"{path} could not be read: {ex.Message}", ex);
+        }
+
+        return ParseExport(json, path);
+    }
+
+    /// <summary>An export's text, checked the same way as a file: right format, not from a newer build.</summary>
+    internal static SiteFile ParseExport(string json, string source)
+    {
+        string path = source;
+        SiteFile? file;
+        try
+        {
+            file = JsonSerializer.Deserialize<SiteFile>(json, ReadJson);
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
