@@ -59,6 +59,7 @@ public partial class MainWindow : Window
             old.PickSiteFileToOpen = null;
             old.PickSiteFileToSave = null;
             old.Trend.PickSaveFile = null;
+            old.Trend.BrowseDialog = null;
             old.Trend.ShowMessage = null;
             old.Fleet.PickSaveFile = null;
             old.Fleet.OpenFile = null;
@@ -90,6 +91,7 @@ public partial class MainWindow : Window
             viewModel.PickSiteFileToOpen = PickSiteFileToOpen;
             viewModel.PickSiteFileToSave = PickSiteFileToSave;
             viewModel.Trend.PickSaveFile = PickCsvFile;
+            viewModel.Trend.BrowseDialog = browser => new SignalBrowserWindow(browser) { Owner = this }.ShowDialog() == true;
             viewModel.Trend.ShowMessage = viewModel.ShowMessage;
             viewModel.Fleet.PickSaveFile = PickSaveFile;
             viewModel.Fleet.OpenFile = path => Shell.Open(this, path);

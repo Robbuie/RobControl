@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RobControl.App.Composition;
 using RobControl.Core;
+using RobControl.Core.Backup;
 using RobControl.Core.Events;
 using RobControl.Core.Persistence;
 using RobControl.Core.Robots;
@@ -28,6 +29,7 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
     private readonly FleetStore _store;
     private readonly TrendRecorder _recorder;
     private readonly Func<IReadOnlyList<RobotRowViewModel>> _targets;
+    private readonly Func<BackupArchive> _archive;
     private string _addText = string.Empty;
     private string _intervalSeconds = "5";
     private string _window = "30 min";
@@ -37,14 +39,17 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
     private DateTimeOffset _to;
     private string _status = "Select robots, add signals, then Read now or Start recording.";
 
-    public TrendViewModel(IUiDispatcher ui, FleetStore store, TrendRecorder recorder, Func<IReadOnlyList<RobotRowViewModel>> targets)
+    /// <param name="archive">The open site's archive - read by the signal browser, which lists what the newest backup holds.</param>
+    public TrendViewModel(IUiDispatcher ui, FleetStore store, TrendRecorder recorder, Func<IReadOnlyList<RobotRowViewModel>> targets, Func<BackupArchive> archive)
     {
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
         _targets = targets ?? throw new ArgumentNullException(nameof(targets));
+        _archive = archive ?? throw new ArgumentNullException(nameof(archive));
 
         AddCommand = new RelayCommand(Add, () => _targets().Count > 0 && AddText.Trim().Length > 0);
+        BrowseCommand = new AsyncRelayCommand(BrowseAsync, () => _targets().Count > 0);
         RemoveCommand = new RelayCommand(Remove, () => SelectedSignal is not null);
         ReadNowCommand = new AsyncRelayCommand(ReadNowAsync, () => Rows.Count > 0);
         StartCommand = new AsyncRelayCommand(StartAsync, () => Rows.Count > 0);
@@ -60,6 +65,9 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
     public Func<string, string?>? PickSaveFile { get; set; }
 
     public Action<string>? ShowMessage { get; set; }
+
+    /// <summary>Shows the signal browser; true when the person pressed Add. Set by the window.</summary>
+    public Func<SignalBrowserViewModel, bool>? BrowseDialog { get; set; }
 
     public ObservableCollection<SignalRowViewModel> Rows { get; } = [];
 
@@ -144,6 +152,8 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
     }
 
     public IRelayCommand AddCommand { get; }
+
+    public IAsyncRelayCommand BrowseCommand { get; }
 
     public IRelayCommand RemoveCommand { get; }
 
@@ -245,17 +255,112 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
             return;
         }
 
+        AddSignals(addresses);
+        AddText = string.Empty;
+    }
+
+    /// <summary>
+    /// Adds signals to every selected robot. <paramref name="labels"/> - comments from the signal
+    /// browser - go only on <paramref name="labelled"/>, the robot that was browsed: another robot's
+    /// R[2] may well mean something else.
+    /// </summary>
+    private void AddSignals(IReadOnlyList<SignalAddress> addresses, Robot? labelled = null, IReadOnlyDictionary<string, string>? labels = null)
+    {
         IReadOnlyList<RobotRowViewModel> targets = _targets();
         foreach (RobotRowViewModel robot in targets)
         {
-            _store.AddSignals(robot.Robot, addresses);
+            if (labels is not null && labelled is not null && robot.Robot.Id == labelled.Id)
+            {
+                foreach (IGrouping<string?, SignalAddress> group in addresses.GroupBy(a => labels.GetValueOrDefault(a.Text)))
+                {
+                    _store.AddSignals(robot.Robot, group, group.Key);
+                }
+            }
+            else
+            {
+                _store.AddSignals(robot.Robot, addresses);
+            }
         }
 
         int variables = addresses.Count(a => a.Kind == SignalKind.SystemVariable);
         Status = string.Create(CultureInfo.CurrentCulture, $"Added {addresses.Count} signal(s) to {targets.Count} robot(s).")
             + (variables > 0 ? string.Create(CultureInfo.CurrentCulture, $" {variables} are system variables: one KCL request each per poll.") : string.Empty);
-        AddText = string.Empty;
         Reload();
+    }
+
+    /// <summary>
+    /// Opens the signal browser on the first selected robot: what its newest backup lists, with
+    /// <b>Read from robot</b> for current values. What is ticked is added to every selected robot.
+    /// </summary>
+    private async Task BrowseAsync()
+    {
+        IReadOnlyList<RobotRowViewModel> targets = _targets();
+        if (targets.Count == 0 || BrowseDialog is null)
+        {
+            return;
+        }
+
+        RobotRowViewModel first = targets[0];
+        Robot robot = first.Robot;
+        BackupArchive archive = _archive();
+        string before = Status;
+        Status = $"Listing what {first.Name}'s newest backup holds...";
+        (SignalListing listing, string source) = await Task.Run(() => FromNewestBackup(archive, robot)).ConfigureAwait(true);
+        Status = before;
+
+        HashSet<string> watched = [.. _store.TrendSignals(robot.Id).Select(s => s.Address.Text)];
+        bool recording = _recorder.IsRecording(robot.Id);
+        var browser = new SignalBrowserViewModel(
+            first.Name,
+            listing,
+            source,
+            watched,
+            recording ? null : cancellation => ReadForBrowserAsync(robot, cancellation),
+            recording ? $"{first.Name} is recording, so its values are already live on the Trends tab. Stop it to read it here." : null);
+
+        if (!BrowseDialog(browser) || browser.Ticked.Count == 0)
+        {
+            return;
+        }
+
+        IReadOnlyList<SignalEntry> ticked = browser.Ticked;
+        Dictionary<string, string> labels = ticked
+            .Where(e => e.Address.Kind != SignalKind.SystemVariable && !string.IsNullOrWhiteSpace(e.Comment))
+            .ToDictionary(e => e.Address.Text, e => e.Comment!, StringComparer.Ordinal);
+        AddSignals([.. ticked.Select(e => e.Address)], robot, labels);
+    }
+
+    /// <summary>What the robot's newest complete backup lists. Files on disk only.</summary>
+    private static (SignalListing Listing, string Source) FromNewestBackup(BackupArchive archive, Robot robot)
+    {
+        BackupSet? set;
+        try
+        {
+            set = archive.LatestComplete(robot);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or BackupArchiveException)
+        {
+            return (SignalListing.Empty($"Could not read the archive folder {archive.Root}: {ex.Message}"), "No backup could be read");
+        }
+
+        return set is null
+            ? (SignalListing.Empty($"{robot.Name} has no complete backup yet, so nothing is listed - and system variables only ever come from a backup. Read from robot lists its registers and I/O."), "No backup yet")
+            : (SignalCatalog.FromBackup(set), $"From the newest backup, {set.FolderName}");
+    }
+
+    /// <summary>The browser's Read from robot: one GET each of the register and I/O pages, logged like any read.</summary>
+    private async Task<SignalListing> ReadForBrowserAsync(Robot robot, CancellationToken cancellation)
+    {
+        SignalListing read = await Task.Run(async () =>
+        {
+            using var web = new Core.Transports.Http.ControllerWebClient(robot.Address, robot.HttpPort, timeout: TimeSpan.FromSeconds(10));
+            return await SignalCatalog.ReadAsync(web, cancellation).ConfigureAwait(false);
+        }, cancellation).ConfigureAwait(true);
+
+        _store.Info(EventCategory.Trend, robot, string.Create(CultureInfo.InvariantCulture,
+            $"Listed {read.Entries.Count} registers and I/O points for the signal browser ({RobotSampler.RegisterFile}, {RobotSampler.IoFile})."),
+            read.Notes.Count == 0 ? null : string.Join("\n", read.Notes));
+        return read;
     }
 
     private void Remove()
@@ -381,6 +486,7 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
     private void RaiseCanExecute()
     {
         AddCommand.NotifyCanExecuteChanged();
+        BrowseCommand.NotifyCanExecuteChanged();
         RemoveCommand.NotifyCanExecuteChanged();
         ReadNowCommand.NotifyCanExecuteChanged();
         StartCommand.NotifyCanExecuteChanged();

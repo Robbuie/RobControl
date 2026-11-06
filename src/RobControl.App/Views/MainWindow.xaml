@@ -525,9 +525,11 @@
                   <Run Text="Acting on: " /><Run Text="{Binding Targets, Mode=OneWay}" FontWeight="SemiBold" />
                 </TextBlock>
                 <DockPanel Margin="0,6,0,0">
+                  <Button DockPanel.Dock="Right" Content="Browse..." Command="{Binding BrowseCommand}" Margin="6,0,0,0"
+                          ToolTip="Pick from a list: registers and I/O with their comments, and system variables, from the first selected robot's newest backup - or read from the robot itself." />
                   <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddCommand}" Margin="6,0,0,0" />
                   <TextBox Text="{Binding AddText, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}"
-                           ToolTip="As on the pendant, comma separated, ranges allowed: R[1-10], DI[1..8], GI[1], $TIMER[1].$TIMER_VAL. Added to every selected robot." />
+                           ToolTip="As on the pendant, comma separated, ranges allowed: R[1-10], DI[1..8], GI[1], $TIMER[1].$TIMER_VAL. Added to every selected robot. Or Browse to pick from a list." />
                 </DockPanel>
                 <WrapPanel Margin="0,6,0,0">
                   <Button Content="Read now" Command="{Binding ReadNowCommand}"

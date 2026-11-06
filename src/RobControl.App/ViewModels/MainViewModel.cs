@@ -71,7 +71,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _trace = trace ?? NullTraceLog.Instance;
         _archive = new BackupArchive(_settings.ArchiveRoot);
         _recorder = recorder ?? new TrendRecorder(store, store);
-        Trend = new TrendViewModel(ui, store, _recorder, () => Targets);
+        Trend = new TrendViewModel(ui, store, _recorder, () => Targets, () => _archive);
         Search = new SearchViewModel(Snapshot);
         Alarms = new AlarmsViewModel(Snapshot);
         Fleet = new FleetViewModel(Snapshot);

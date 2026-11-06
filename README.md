@@ -172,6 +172,15 @@ on its own, one request at a time and never faster than every 2 seconds, and sto
 plus one value a minute. The chart overlays every plotted signal; **Export CSV** writes what is on
 it. A robot that stops answering is backed off and picked up again when it comes back.
 
+**Browse...** picks signals from a list instead. It shows what the first selected robot's newest
+backup holds: numeric registers and I/O with their comments, and every system variable that holds
+a single number. Filter by name, comment or kind (`weld`, `DO[`, `$MCR`, `group out`), or pick a
+category; tick rows (Space ticks the selected rows, a double-click ticks one) and press **Add**.
+They go on every selected robot, and on the robot you browsed, a register's or I/O point's comment
+becomes its label. **Read from robot** asks the robot for its register and I/O pages - the same two
+reads the recorder makes - for current values, and for I/O a backup did not list. System variables
+only ever come from a backup, so a robot with no complete backup lists registers and I/O only.
+
 Registers and I/O need only the controller's web server. System variables need KCL unlocked under
 **Setup > Host Comm > HTTP** on the pendant; RobControl says so when it is locked.
 

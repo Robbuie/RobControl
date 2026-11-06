@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 - signal browser on the Trends tab
+
+Nothing new is sent to a robot: Read from robot is one GET each of `NUMREG.VA` and `IOSTATE.DG`,
+the two pages the recorder already reads, logged in the event log like every read.
+
+- **Browse...** on the Trends tab: pick signals from a list instead of typing them. Registers and
+  I/O with their comments, and system variables that hold a number, from the robot's newest backup
+  on disk; **Read from robot** for current values. Filter, tick, Add - added to every selected
+  robot, with the comment as the label on the robot you browsed.
+
 ## 0.6.1 - devices as tick boxes
 
 - **Devices are tick boxes** in System settings and the robot dialog, the same list Back up offers,
