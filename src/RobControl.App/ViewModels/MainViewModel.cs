@@ -14,6 +14,7 @@ using RobControl.Core.Events;
 using RobControl.Core.Persistence;
 using RobControl.Core.Robots;
 using RobControl.Core.Sites;
+using RobControl.Core.Systems;
 using RobControl.Core.Trending;
 
 namespace RobControl.App.ViewModels;
@@ -28,9 +29,9 @@ namespace RobControl.App.ViewModels;
 /// is skipped rather than queued twice - two sessions on one controller is what the Safety section
 /// rules out.</para>
 ///
-/// <para><b>One site.</b> A view model is built on one site's database and lives as long as that site
-/// is open. Switching site is asked of <see cref="ISiteHost"/>, which disposes this one and builds
-/// another - nothing in here ever holds two sites' robots at once.</para>
+/// <para><b>One site, one system.</b> A view model is built on one site's database and one of its
+/// systems, and shows that system's robots only. Switching is asked of <see cref="ISiteHost"/>, which
+/// disposes this one and builds another - nothing in here ever holds two sites' robots at once.</para>
 /// </summary>
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
@@ -43,6 +44,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly string _tool;
     private readonly CancellationTokenSource _shutdown = new();
     private Site _site;
+    private RobotSystem _system;
     private SiteSettings _settings;
     private BackupArchive _archive;
     private CancellationTokenSource? _operation;
@@ -56,11 +58,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TrendRecorder _recorder;
     private IReadOnlyList<RobotRowViewModel> _selectedRobots = [];
 
-    public MainViewModel(IUiDispatcher ui, FleetStore store, Site site, ISiteHost sites, string tool, ITraceLog? trace = null, TrendRecorder? recorder = null)
+    public MainViewModel(
+        IUiDispatcher ui, FleetStore store, Site site, RobotSystem system, ISiteHost sites, string tool, ITraceLog? trace = null, TrendRecorder? recorder = null)
     {
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _site = site ?? throw new ArgumentNullException(nameof(site));
+        _system = system ?? throw new ArgumentNullException(nameof(system));
         _sites = sites ?? throw new ArgumentNullException(nameof(sites));
         _settings = site.Settings;
         _tool = tool;
@@ -71,6 +75,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Search = new SearchViewModel(Snapshot);
         Alarms = new AlarmsViewModel(Snapshot);
         Fleet = new FleetViewModel(Snapshot);
+        Live = new LiveViewModel(ui, store, () => Selected, _recorder.IsRecording);
 
         AddRobotCommand = new RelayCommand(AddRobot);
         EditRobotCommand = new RelayCommand(EditRobot, () => Selected is { IsBusy: false });
@@ -94,18 +99,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ExportSiteCommand = new RelayCommand(ExportSite);
         OpenSiteFolderCommand = new RelayCommand(() => OpenFolder?.Invoke(_site.Folder));
         ExportEventsCommand = new RelayCommand(ExportEvents);
+        ChooseSystemCommand = new RelayCommand(ChooseSystem);
+        EditSystemCommand = new RelayCommand(EditSystem, () => !_system.IsUnassigned);
+        OpenSystemFolderCommand = new RelayCommand(() => OpenFolder?.Invoke(_system.IsUnassigned ? _site.ConfigFolder : _system.Folder));
 
         _store.EventRecorded += OnEventRecorded;
         LoadRobots();
         ReloadEvents();
         Trend.Reload();
         ReloadSites();
+        ReloadSystems();
     }
 
     // ------------------------------------------------------------------ the view's delegates
 
     /// <summary>Shows the robot dialog. A draft with no Id means "add"; null out means cancelled.</summary>
     public Func<RobotDraft, RobotDraft?>? EditRobotDialog { get; set; }
+
+    /// <summary>Shows the system dialog. Null out means cancelled.</summary>
+    public Func<SystemDraft, SystemDraft?>? EditSystemDialog { get; set; }
+
+    /// <summary>Shows the system picker. Null out means cancelled.</summary>
+    public Func<SystemPickerViewModel, SystemChoice?>? PickSystemDialog { get; set; }
+
+    /// <summary>
+    /// The dialog on every Back up: which devices, folders or not. Null out means cancelled. Not shown
+    /// for a scheduled backup - nobody is there - which uses each robot's settings as they are.
+    /// </summary>
+    public Func<BackupChoiceViewModel, bool>? ChooseBackupDialog { get; set; }
 
     /// <summary>Shows the site dialog. The flag is true for a new site; null out means cancelled.</summary>
     public Func<SiteDraft, bool, SiteDraft?>? EditSiteDialog { get; set; }
@@ -161,6 +182,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 }
 
                 OnPropertyChanged(nameof(TargetText));
+                Live.SelectionChanged();
 
                 RaiseCanExecute();
             }
@@ -191,6 +213,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>The Fleet tab - inventory, watched setting changes, the site report.</summary>
     public FleetViewModel Fleet { get; }
+
+    /// <summary>The Live tab: what the selected robot says right now, read-only.</summary>
+    public LiveViewModel Live { get; }
 
     /// <summary>The open site as the fleet-wide tabs read it, at this moment.</summary>
     public FleetContext Snapshot() => new(
@@ -238,7 +263,28 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>The open site's name: in the title bar and the status bar, so nobody backs up the wrong plant.</summary>
     public string SiteName => _site.Name;
 
-    public string WindowTitle => $"RobControl - {_site.Name}";
+    public string WindowTitle => $"RobControl - {_site.Name} / {_system.Name}";
+
+    /// <summary>The open system's name: beside the site's in the status bar.</summary>
+    public string SystemName => _system.Name;
+
+    /// <summary>Every system of the open site, for Robots > Move to system.</summary>
+    public ObservableCollection<SiteChoiceViewModel> MoveChoices { get; } = [];
+
+    /// <summary>Every system of the open site, for System > Switch to.</summary>
+    public ObservableCollection<SiteChoiceViewModel> SystemChoices { get; } = [];
+
+    /// <summary>What a backup of this system takes unless a robot says otherwise: "MD:, FR: and subfolders".</summary>
+    public string BackupDefaultsText
+    {
+        get
+        {
+            BackupOptions options = BackupProfile.Resolve(_system.Settings.Backup, null, _settings.IncludeFrom);
+            string folders = options.IncludeSubfolders ? " with subfolders" : string.Empty;
+            string excluded = options.Exclude.Count == 0 ? string.Empty : $", leaving out {string.Join(" ", options.Exclude)}";
+            return $"Backs up {BackupProfile.Describe(options.Devices)}{folders}{excluded}";
+        }
+    }
 
     /// <summary>Every site on this PC, for the Site > Switch to menu.</summary>
     public ObservableCollection<SiteChoiceViewModel> SiteChoices { get; } = [];
@@ -252,20 +298,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         : _nextScheduled is { } next
             ? string.Create(CultureInfo.CurrentCulture, $"Every {_settings.ScheduleHours} h - next {next.ToLocalTime():ddd HH:mm}")
             : string.Create(CultureInfo.CurrentCulture, $"Every {_settings.ScheduleHours} h");
-
-    public bool IncludeFrom
-    {
-        get => _settings.IncludeFrom;
-        set
-        {
-            if (_settings.IncludeFrom != value)
-            {
-                _settings = _settings with { IncludeFrom = value };
-                SaveSettings();
-                OnPropertyChanged();
-            }
-        }
-    }
 
     /// <summary>
     /// The whole event log of this site - or the selected robot's, when the tab shows only that - as
@@ -332,6 +364,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public IRelayCommand OpenSiteFolderCommand { get; }
 
+    /// <summary>The picker: another system of this site, another site, or a new one.</summary>
+    public IRelayCommand ChooseSystemCommand { get; }
+
+    public IRelayCommand EditSystemCommand { get; }
+
+    /// <summary>The open system's folder - its system.json - in Explorer.</summary>
+    public IRelayCommand OpenSystemFolderCommand { get; }
+
     /// <summary>Puts a sentence in the status bar - for things the host has to say at startup.</summary>
     public void ReportStatus(string message) => Status = message;
 
@@ -381,7 +421,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
                         // Only a scheduled run retries: nobody is watching it, and a robot that was
                         // rebooting at 3 am usually answers five minutes later.
-                        _ = BackupAsync([.. Robots], _settings.ScheduleRetries);
+                        _ = BackupAsync([.. Robots], _settings.ScheduleRetries, ask: false);
                     });
                 }
             }
@@ -438,6 +478,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Fleet.Cancel();
         Trend.Dispose();
         _recorder.StopAllAsync().GetAwaiter().GetResult();
+        Live.Dispose();
         _shutdown.Cancel();
         _operation?.Cancel();
         _shutdown.Dispose();
@@ -448,7 +489,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void LoadRobots()
     {
         Robots.Clear();
-        foreach (Robot robot in _store.Robots())
+        IReadOnlyList<Robot> members;
+        try
+        {
+            members = SystemMembership.Members(_system, _store.Robots(), _sites.Systems());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _trace.Warn("The system list could not be read.", ex);
+            members = [];
+        }
+
+        foreach (Robot robot in members)
         {
             var row = new RobotRowViewModel(robot);
             (ControllerIdentity? identity, DateTimeOffset? utc, string? summary) = _store.LastProbe(robot);
@@ -468,10 +520,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             FtpUser = _settings.DefaultFtpUser,
             FtpPassword = _settings.DefaultFtpPassword,
+            SystemName = _system.IsUnassigned ? null : _system.Name,
+            SystemDevices = SystemDevicesText(),
         });
-        if (draft is null || !TrySave(draft, out Robot? saved))
+        if (draft is null || !TrySave(draft, out Robot? saved, out BackupProfile? backup))
         {
             return;
+        }
+
+        // Into this system's file, so it is listed here - and in the file someone copies to the next laptop.
+        if (!_system.IsUnassigned)
+        {
+            SaveSystemQuietly(_system.Settings.With(saved!, backup, replaceBackup: true));
         }
 
         var row = new RobotRowViewModel(saved!);
@@ -489,13 +549,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        RobotDraft? draft = EditRobotDialog?.Invoke(RobotDraft.From(row.Robot));
-        if (draft is null || !TrySave(draft, out Robot? saved))
+        RobotDraft? draft = EditRobotDialog?.Invoke(RobotDraft.From(row.Robot, _system.Settings.EntryFor(row.Robot)?.Backup) with
+        {
+            SystemName = _system.IsUnassigned ? null : _system.Name,
+            SystemDevices = SystemDevicesText(),
+        });
+        if (draft is null || !TrySave(draft, out Robot? saved, out BackupProfile? backup))
         {
             return;
         }
 
         bool renamed = !string.Equals(row.Robot.Name, saved!.Name, StringComparison.Ordinal);
+        if (!_system.IsUnassigned)
+        {
+            // Keyed by address in system.json: an edited address moves the entry, an edited name refreshes it.
+            SaveSystemQuietly(_system.Settings.Renamed(row.Robot, saved).With(saved, backup, replaceBackup: true));
+        }
+
         row.Robot = saved;
         _store.Info(EventCategory.App, saved, "Robot details changed.");
         if (renamed)
@@ -508,18 +578,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshBackups(row);
     }
 
-    private bool TrySave(RobotDraft draft, out Robot? saved)
+    private bool TrySave(RobotDraft draft, out Robot? saved, out BackupProfile? backup)
     {
         saved = null;
-        if (!draft.TryBuild(out Robot? robot, out string? problem))
+        backup = null;
+        if (!draft.TryBuild(out Robot? robot, out string? problem) || !draft.Backup.TryBuild(out backup, out problem))
         {
             ShowMessage?.Invoke(problem ?? "The robot details are not valid.");
             return false;
         }
 
-        if (Robots.Any(r => r.Robot.Id != robot!.Id && r.Robot.Address.Equals(robot.Address) && r.Robot.FtpPort == robot.FtpPort))
+        // Against the whole site, not just this system: two rows for one controller anywhere at the
+        // site would still be two sessions on it.
+        if (_store.Robots().FirstOrDefault(r => r.Id != robot!.Id && r.Address.Equals(robot.Address) && r.FtpPort == robot.FtpPort) is { } other)
         {
-            ShowMessage?.Invoke($"{robot!.Address} is already in the list. Two rows for one controller would mean two sessions on it.");
+            string where = _sites.Systems().FirstOrDefault(s => s.Settings.Contains(other)) is { } system && system.Key != _system.Key
+                ? $" (as '{other.Name}' in system '{system.Name}')"
+                : $" (as '{other.Name}')";
+            ShowMessage?.Invoke($"{robot!.Address} is already in this site's list{where}. Two rows for one controller would mean two sessions on it.");
             return false;
         }
 
@@ -551,6 +627,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         _store.Remove(row.Robot);
         _store.Info(EventCategory.App, row.Robot, "Robot removed from the list. Backups left in place.");
+        try
+        {
+            _sites.ForgetRobot(row.Robot);
+            _system = _sites.CurrentSystem;
+        }
+        catch (RobControlException ex)
+        {
+            Status = $"Removed, but its line in system.json could not be taken out: {ex.Message}";
+        }
         Robots.Remove(row);
         Selected = Robots.FirstOrDefault();
         RaiseCanExecute();
@@ -607,7 +692,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private Task BackupAllAsync() => BackupAsync([.. Robots]);
 
-    private async Task BackupAsync(IReadOnlyList<RobotRowViewModel> rows, int retries = 0)
+    /// <param name="ask">Show the device dialog first. False for a scheduled backup: nobody is there to answer.</param>
+    private async Task BackupAsync(IReadOnlyList<RobotRowViewModel> rows, int retries = 0, bool ask = true)
     {
         List<RobotRowViewModel> todo = [.. rows.Where(r => !r.IsBusy)];
         if (todo.Count == 0)
@@ -615,9 +701,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Each robot's options from its system and its own settings; then, when someone is there,
+        // the dialog to change the devices for this one backup.
+        IReadOnlyDictionary<Robot, BackupOptions> chosen = todo.ToDictionary(r => r.Robot, r => OptionsFor(r.Robot));
+        if (ask && ChooseBackupDialog is { } dialog)
+        {
+            var choice = new BackupChoiceViewModel([.. todo.Select(r => (r.Robot, chosen[r.Robot]))]);
+            if (!dialog(choice) || !choice.TryBuild(out IReadOnlyDictionary<Robot, BackupOptions>? picked))
+            {
+                return;
+            }
+
+            chosen = picked!;
+        }
+
         CancellationToken token = Begin();
         var runner = new BackupRunner(_archive, _tool, _store);
-        var options = new BackupOptions { Devices = _settings.IncludeFrom ? ["md:", "fr:"] : ["md:"] };
+        var options = BackupProfile.Resolve(_system.Settings.Backup, null, _settings.IncludeFrom);
         Dictionary<Robot, RobotRowViewModel> byRobot = todo.ToDictionary(r => r.Robot);
         int finished = 0;
         int complete = 0;
@@ -630,7 +730,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         RaiseCanExecute();
-        Status = string.Create(CultureInfo.CurrentCulture, $"Backing up {todo.Count} robot(s) into {_archive.Root}...");
+        string devices = string.Join(" / ", chosen.Values.Select(o => BackupProfile.Describe(o.Devices)).Distinct(StringComparer.Ordinal));
+        Status = string.Create(CultureInfo.CurrentCulture, $"Backing up {todo.Count} robot(s) - {devices} - into {_archive.Root}...");
 
         var progress = new Progress<BackupProgress>(p =>
         {
@@ -686,7 +787,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
                     Status = string.Create(CultureInfo.CurrentCulture,
                         $"{again.Count} robot(s) did not complete; trying them again in {delay.TotalMinutes:0} min: {names}");
-                })), token).ConfigureAwait(true);
+                }),
+                robot => chosen.TryGetValue(robot, out BackupOptions? own) ? own : options), token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -860,6 +962,169 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ------------------------------------------------------------------ systems
+
+    /// <summary>What <paramref name="robot"/>'s backup takes: built-in defaults, its system, then its own line in system.json.</summary>
+    private BackupOptions OptionsFor(Robot robot) =>
+        BackupProfile.Resolve(_system.Settings.Backup, _system.Settings.EntryFor(robot)?.Backup, _settings.IncludeFrom);
+
+    private string SystemDevicesText() =>
+        BackupProfile.Describe(BackupProfile.Resolve(_system.Settings.Backup, null, _settings.IncludeFrom).Devices);
+
+    /// <summary>Writes the open system's file. Never throws: the status bar says when it did not save.</summary>
+    private void SaveSystemQuietly(SystemSettings settings)
+    {
+        try
+        {
+            _system = _sites.SaveSystem(settings);
+            OnPropertyChanged(nameof(BackupDefaultsText));
+        }
+        catch (RobControlException ex)
+        {
+            _trace.Warn("System settings could not be saved.", ex);
+            Status = $"{_system.SettingsPath} not saved: {ex.Message}";
+        }
+    }
+
+    private void ReloadSystems()
+    {
+        MoveChoices.Clear();
+        SystemChoices.Clear();
+        try
+        {
+            foreach (RobotSystem system in _sites.Systems())
+            {
+                bool current = system.Key == _system.Key;
+                string key = system.Key;
+                SystemChoices.Add(new SiteChoiceViewModel(key, system.Name, current,
+                    new RelayCommand(() => OpenSystem(new SystemChoice(_site.Key, key)))));
+                MoveChoices.Add(new SiteChoiceViewModel(key, system.Name, current,
+                    new RelayCommand(() => MoveSelectedTo(key), () => !current && Targets.Count > 0 && Targets.All(r => !r.IsBusy))));
+            }
+
+            if (!_system.IsUnassigned && SystemMembership.Members(RobotSystem.Unassigned(_site.Key), _store.Robots(), _sites.Systems()).Count is > 0 and int loose)
+            {
+                SystemChoices.Add(new SiteChoiceViewModel(RobotSystem.UnassignedKey,
+                    string.Create(CultureInfo.CurrentCulture, $"Not in a system ({loose})"), false,
+                    new RelayCommand(() => OpenSystem(new SystemChoice(_site.Key, RobotSystem.UnassignedKey)))));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _trace.Warn("The system list could not be read.", ex);
+        }
+    }
+
+    private void ChooseSystem()
+    {
+        var picker = new SystemPickerViewModel(_sites, new SystemChoice(_site.Key, _system.IsUnassigned ? null : _system.Key), isStartup: false);
+        SystemChoice? choice = PickSystemDialog?.Invoke(picker);
+        if (choice is not null)
+        {
+            OpenSystem(choice);
+        }
+    }
+
+    private void OpenSystem(SystemChoice choice)
+    {
+        if (string.Equals(choice.SiteKey, _site.Key, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(choice.SystemKey, _system.Key, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        string name = choice.SystemKey ?? choice.SiteKey;
+        if (!ReadyToLeave(name))
+        {
+            return;
+        }
+
+        // On success this view model has been disposed and replaced by the time Open returns;
+        // nothing after it may touch the store.
+        if (_sites.Open(choice) is { } problem)
+        {
+            ShowMessage?.Invoke(problem);
+            ReloadSites();
+            ReloadSystems();
+        }
+    }
+
+    private void EditSystem()
+    {
+        if (_system.IsUnassigned)
+        {
+            return;
+        }
+
+        SystemDraft? draft = EditSystemDialog?.Invoke(SystemDraft.From(_system));
+        if (draft is null)
+        {
+            return;
+        }
+
+        if (!draft.TryBuild(_system.Settings, out SystemSettings? settings, out string? problem))
+        {
+            ShowMessage?.Invoke(problem ?? "The system details are not valid.");
+            return;
+        }
+
+        try
+        {
+            _system = _sites.SaveSystem(settings!);
+        }
+        catch (RobControlException ex)
+        {
+            ShowMessage?.Invoke(ex.Message + (ex.Remediation is null ? string.Empty : Environment.NewLine + Environment.NewLine + ex.Remediation));
+            return;
+        }
+
+        _store.Info(EventCategory.App, null, $"System settings changed: '{_system.Name}' - {BackupDefaultsText}.");
+        OnPropertyChanged(nameof(SystemName));
+        OnPropertyChanged(nameof(WindowTitle));
+        OnPropertyChanged(nameof(BackupDefaultsText));
+        ReloadSystems();
+    }
+
+    /// <summary>Moves the selected robots into another system of this site. They leave this list.</summary>
+    private void MoveSelectedTo(string systemKey)
+    {
+        List<RobotRowViewModel> rows = [.. Targets.Where(r => !r.IsBusy)];
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        string name = _sites.Systems().FirstOrDefault(s => s.Key == systemKey)?.Name ?? systemKey;
+        int recording = rows.Count(r => _recorder.IsRecording(r.Robot.Id));
+        if (recording > 0 && Confirm?.Invoke(string.Create(CultureInfo.CurrentCulture,
+                $"Trend recording on {recording} of them stops when they move to {name}. Move anyway?")) != true)
+        {
+            return;
+        }
+
+        foreach (RobotRowViewModel row in rows)
+        {
+            try
+            {
+                _recorder.StopAsync(row.Robot.Id).GetAwaiter().GetResult();
+                _sites.MoveRobot(row.Robot, systemKey);
+                _store.Info(EventCategory.App, row.Robot, $"Moved from system '{_system.Name}' to '{name}'.");
+                Robots.Remove(row);
+            }
+            catch (RobControlException ex)
+            {
+                ShowMessage?.Invoke($"{row.Name} could not be moved: {ex.Message}");
+                break;
+            }
+        }
+
+        _system = _sites.CurrentSystem;
+        Selected = Robots.FirstOrDefault();
+        Status = string.Create(CultureInfo.CurrentCulture, $"Moved {rows.Count} robot(s) to {name}. System menu to switch to it.");
+        ReloadSystems();
+        RaiseCanExecute();
+    }
+
     // ------------------------------------------------------------------ sites
 
     private void ReloadSites()
@@ -997,7 +1262,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        List<Robot> robots = [.. Robots.Select(r => r.Robot)];
+        // The whole site, every system: an export is the site's robot list.
+        List<Robot> robots = [.. _store.Robots()];
         try
         {
             SiteCatalog.Export(_site, robots, path, _tool);
@@ -1106,7 +1372,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             + "Yes: the other PC gets the full history, backups included. The file can be large.\n"
             + "No: settings, robot list, event log and trends only.") == true;
 
-        List<Robot> robots = [.. Robots.Select(r => r.Robot)];
+        // The whole site, every system: an export is the site's robot list.
+        List<Robot> robots = [.. _store.Robots()];
         CancellationToken token = Begin();
         try
         {
@@ -1227,5 +1494,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         DiagnoseNetworkCommand.NotifyCanExecuteChanged();
         ImportSiteCommand.NotifyCanExecuteChanged();
         ExportBundleCommand.NotifyCanExecuteChanged();
+        Live.RaiseCanExecute();
+        foreach (SiteChoiceViewModel move in MoveChoices)
+        {
+            move.Command.NotifyCanExecuteChanged();
+        }
     }
 }

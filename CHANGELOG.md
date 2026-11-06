@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.0 - systems, device choice per backup, folders, Live
+
+Nothing new is sent to a robot except the Live tab's GETs of diagnostic pages the probe and trends
+already read, and a `CWD` into a folder name during a backup. Still read-only.
+
+- **Systems.** A site now holds systems - a line, a cell, a job - each with its own robot list and
+  backup settings in `Documents\RobControl\Systems\<site>\<system>\system.json`. RobControl opens on a
+  **system picker** (pick, or make a new site or system); **System > Open system** and **System >
+  Switch to** change it later, and **Robots > Move to system** moves robots between systems.
+- `site.json` **moved** to `Documents\RobControl\Systems\<site>\` - automatically, the first time
+  each site is read. The databases stay in `%LOCALAPPDATA%`. Every existing site gets a system called
+  **Main** holding all its robots.
+- A robot typed into `system.json` by address is **added** when the system opens, so a system folder
+  copied from another laptop brings its robots.
+- **Choose devices on every backup.** Back up asks which devices to copy - `MD:`, `FR:`, `FRA:`,
+  `MC:`, `UD1:`, `UT1:`, `RD:` or any typed in - ticked from the system's and the robot's settings.
+  Scheduled backups use the settings without asking. **Backup > Also copy FR:** is replaced by
+  **Backup settings for this system**.
+- **Folders inside devices** are copied (up to four levels), into the same shape in the archive. A
+  folder that is not copied no longer makes the backup *Partial* - it is listed in the manifest's new
+  `notCopied`, and copied folders in `folders`.
+- **Leave files out** with patterns such as `*.DG` or `LOGBOOK/*`, per system or per robot; also
+  listed in `notCopied`.
+- **Per-robot backup settings** - devices, folders, files to leave out, pause between files - in the
+  robot dialog, stored in the system's file. Blank means "as the system says".
+- **Live** tab: active alarms, recent alarm history, I/O (with a filter), program state and current
+  position of the selected robot, from its diagnostic pages. Read now, or every few seconds (5 s at
+  the fastest); never while that robot is being backed up, probed or recorded.
+- `--system` on the command line opens a system without the picker, next to `--site`.
+
 ## 0.5.0 - backup health, verify, bundles and exports
 
 Nothing here sends anything new to a robot except the clock check, which reads a header the web

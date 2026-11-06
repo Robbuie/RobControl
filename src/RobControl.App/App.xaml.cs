@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using RobControl.App.Appearance;
 using RobControl.App.Composition;
 using RobControl.App.Diagnostics;
+using RobControl.App.ViewModels;
 using RobControl.App.Views;
 using RobControl.Core.Diagnostics;
 
@@ -48,12 +49,20 @@ public partial class App : Application
             });
         });
 
-        // RobControl.exe --site "Plant 3" - opens that site instead of the one used last.
+        // RobControl.exe --site "Plant 3" [--system "Line 4"] - opens that, without the picker.
         string? site = ArgumentAfter(e.Args, "--site");
+        string? system = ArgumentAfter(e.Args, "--system");
 
+        // The picker comes up before the main window. Until that window exists, closing the picker
+        // must not end the application on its own - WPF's default is to quit when the last window closes.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        SystemChoice? choice;
+        string? notice;
         try
         {
-            _host = new AppHost(new WpfDispatcher(Dispatcher), _trace, site);
+            _host = new AppHost(new WpfDispatcher(Dispatcher), _trace);
+            choice = _host.DefaultChoice(site, system, out notice);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -62,10 +71,54 @@ public partial class App : Application
             return;
         }
 
-        var shell = new MainWindow { DataContext = _host.ViewModel };
+        // The picker every time, unless the command line already says what to open: --site, or --robot
+        // from NetControl's "Open in RobControl", which opens the system used last.
+        bool ask = site is null && ArgumentAfter(e.Args, "--robot") is null;
         AppHost host = _host;
+        while (true)
+        {
+            if (ask)
+            {
+                var picker = new SystemPickerWindow(new SystemPickerViewModel(host, choice, isStartup: true));
+                if (picker.ShowDialog() != true || picker.Choice is null)
+                {
+                    Shutdown(0);
+                    return;
+                }
 
-        // A site switch builds a new view model on the other site's database; the window rebinds to it.
+                choice = picker.Choice;
+            }
+
+            string? problem;
+            try
+            {
+                problem = host.Open(choice);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                Report("RobControl could not open that system.", ex);
+                problem = ex.Message;
+            }
+
+            if (problem is null)
+            {
+                break;
+            }
+
+            MessageBox.Show(problem, "RobControl", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ask = true;
+        }
+
+        if (notice is not null)
+        {
+            host.ViewModel.ReportStatus(notice);
+        }
+
+        var shell = new MainWindow { DataContext = host.ViewModel };
+        MainWindow = shell;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
+
+        // A switch builds a new view model on the other system (and site); the window rebinds to it.
         host.ViewModelChanged += (_, _) => shell.DataContext = host.ViewModel;
         shell.Show();
 

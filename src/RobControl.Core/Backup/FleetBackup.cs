@@ -21,6 +21,9 @@ public sealed class FleetBackup(BackupRunner runner)
     /// attempt is its own folder and its own event, so a retry that worked does not hide the failure
     /// before it.
     ///
+    /// <para><paramref name="optionsFor"/>, when given, decides each robot's options - its own devices
+    /// and excludes from its system - and <paramref name="options"/> is only the fallback.</para>
+    ///
     /// <para>Why retry at all: a robot that is mid-power-cycle, on a switch being replaced, or
     /// briefly busy answering a pendant is a common reason for one scheduled backup to fail at 3 am.
     /// One retry a few minutes later turns most of those into a good backup instead of a stale robot.</para>
@@ -35,7 +38,8 @@ public sealed class FleetBackup(BackupRunner runner)
         CancellationToken cancellationToken = default,
         int retries = 0,
         TimeSpan? retryDelay = null,
-        Action<IReadOnlyList<Robot>, TimeSpan>? retrying = null)
+        Action<IReadOnlyList<Robot>, TimeSpan>? retrying = null,
+        Func<Robot, BackupOptions>? optionsFor = null)
     {
         ArgumentNullException.ThrowIfNull(robots);
         ArgumentOutOfRangeException.ThrowIfLessThan(concurrency, 1);
@@ -71,7 +75,7 @@ public sealed class FleetBackup(BackupRunner runner)
                 await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    results[i] = await _runner.RunAsync(robot, options, knownIdentity?.Invoke(robot), progress, cancellationToken)
+                    results[i] = await _runner.RunAsync(robot, optionsFor?.Invoke(robot) ?? options, knownIdentity?.Invoke(robot), progress, cancellationToken)
                         .ConfigureAwait(false);
                     finished?.Invoke(robot, results[i]);
                 }

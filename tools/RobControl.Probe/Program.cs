@@ -175,7 +175,7 @@ Say(string.Empty);
 Say("== Web server ==");
 using (var web = new ControllerWebClient(address, httpPort))
 {
-    foreach (string name in new[] { "SUMMARY.DG", "ERRALL.LS", "IOSTATE.DG", "NUMREG.VA", "PRGSTATE.DG", "CURPOS.DG", "VERSION.DG" })
+    foreach (string name in new[] { "SUMMARY.DG", "ERRALL.LS", "ERRACT.LS", "IOSTATE.DG", "NUMREG.VA", "PRGSTATE.DG", "CURPOS.DG", "VERSION.DG" })
     {
         try
         {

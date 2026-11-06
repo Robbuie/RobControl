@@ -7,8 +7,13 @@ using RobControl.Core.Robots;
 namespace RobControl.Core.Sites;
 
 /// <summary>
-/// The sites on this PC: one folder each under <see cref="Root"/>, holding <c>site.json</c> and that
-/// site's own fleet database.
+/// The sites on this PC: one folder each under <see cref="Root"/> holding that site's own fleet
+/// database, and one each under <see cref="ConfigRoot"/> holding its <c>site.json</c> and its systems.
+///
+/// <para><b>Two roots since 0.6.0.</b> The settings people open in Notepad and copy between laptops
+/// went to <c>Documents\RobControl\Systems</c>; the database stayed in the profile, because Documents
+/// is often synced and SQLite in a synced folder corrupts. A <c>site.json</c> still beside its database
+/// (0.5.0 and earlier) is moved across the first time the site is read.</para>
 ///
 /// <para><b>Fully separate, on purpose.</b> Two plants can both have an R1-01 at 10.10.1.11. With a
 /// database and an archive folder per site, switching plants can never put one plant's robot in the
@@ -33,18 +38,24 @@ public sealed class SiteCatalog
 
     private readonly ITraceLog _trace;
 
-    /// <param name="root">The folder the site folders are in: <c>%LOCALAPPDATA%\RobControl\sites</c>.</param>
+    /// <param name="root">The folder the site databases are in: <c>%LOCALAPPDATA%\RobControl\sites</c>.</param>
     /// <param name="archiveBase">Where a new site's archive folder goes by default: <c>Documents\RobControl Backups</c>.</param>
-    public SiteCatalog(string root, string archiveBase, ITraceLog? trace = null)
+    /// <param name="configRoot">Where <c>site.json</c> and the systems go: <c>Documents\RobControl\Systems</c>. Null keeps them beside the database.</param>
+    public SiteCatalog(string root, string archiveBase, ITraceLog? trace = null, string? configRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         ArgumentException.ThrowIfNullOrWhiteSpace(archiveBase);
         Root = Path.GetFullPath(root);
+        ConfigRoot = string.IsNullOrWhiteSpace(configRoot) ? Root : Path.GetFullPath(configRoot);
         ArchiveBase = archiveBase;
         _trace = trace ?? NullTraceLog.Instance;
     }
 
     public string Root { get; }
+
+    public string ConfigRoot { get; }
+
+    private bool SplitRoots => !string.Equals(Root, ConfigRoot, StringComparison.OrdinalIgnoreCase);
 
     public string ArchiveBase { get; }
 
@@ -58,18 +69,33 @@ public sealed class SiteCatalog
     /// </summary>
     public IReadOnlyList<Site> List()
     {
-        if (!Directory.Exists(Root))
+        var keys = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (Directory.Exists(Root))
         {
-            return [];
+            foreach (string folder in Directory.EnumerateDirectories(Root))
+            {
+                if (File.Exists(Path.Combine(folder, Site.SettingsFileName)) || File.Exists(Path.Combine(folder, Site.DatabaseFileName)))
+                {
+                    keys.Add(Path.GetFileName(folder));
+                }
+            }
+        }
+
+        if (SplitRoots && Directory.Exists(ConfigRoot))
+        {
+            foreach (string folder in Directory.EnumerateDirectories(ConfigRoot))
+            {
+                if (File.Exists(Path.Combine(folder, Site.SettingsFileName)))
+                {
+                    keys.Add(Path.GetFileName(folder));
+                }
+            }
         }
 
         var sites = new List<Site>();
-        foreach (string folder in Directory.EnumerateDirectories(Root))
+        foreach (string key in keys)
         {
-            if (File.Exists(Path.Combine(folder, Site.SettingsFileName)) || File.Exists(Path.Combine(folder, Site.DatabaseFileName)))
-            {
-                sites.Add(Load(folder));
-            }
+            sites.Add(Load(Path.Combine(Root, key)));
         }
 
         sites.Sort((a, b) => StringComparer.CurrentCultureIgnoreCase.Compare(a.Name, b.Name));
@@ -95,7 +121,10 @@ public sealed class SiteCatalog
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
         string key = Path.GetFileName(Path.TrimEndingDirectorySeparator(folder));
-        string path = Path.Combine(folder, Site.SettingsFileName);
+        folder = Path.Combine(Root, key);
+        string config = Path.Combine(ConfigRoot, key);
+        string path = Path.Combine(config, Site.SettingsFileName);
+        MoveLegacySettings(Path.Combine(folder, Site.SettingsFileName), path);
         SiteSettings settings = new();
 
         try
@@ -116,7 +145,39 @@ public sealed class SiteCatalog
         }
 
         settings = settings.Normalised(DefaultArchiveRoot(settings.Name));
-        return new Site(key, folder, settings);
+        return new Site(key, folder, settings) { ConfigFolder = config };
+    }
+
+    /// <summary>
+    /// 0.5.0 kept <c>site.json</c> beside the database. Moved, not copied, so there is one file to
+    /// edit; if the move fails the old file is read where it is and the next start tries again.
+    /// </summary>
+    private void MoveLegacySettings(string legacy, string path)
+    {
+        if (!SplitRoots || File.Exists(path) || !File.Exists(legacy))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.Move(legacy, path);
+            _trace.Info($"Moved {legacy} to {path}.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _trace.Warn($"{legacy} could not be moved to {path}; reading it where it is.", ex);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.Copy(legacy, path);
+            }
+            catch (Exception copy) when (copy is IOException or UnauthorizedAccessException)
+            {
+                _trace.Warn($"{legacy} could not be copied either.", copy);
+            }
+        }
     }
 
     /// <summary>Makes a new, empty site. Its folder name is derived from the name and never changes after.</summary>
@@ -140,7 +201,10 @@ public sealed class SiteCatalog
             };
         }
 
-        var site = new Site(key, folder, settings.Normalised(DefaultArchiveRoot(name)) with { Name = name });
+        var site = new Site(key, folder, settings.Normalised(DefaultArchiveRoot(name)) with { Name = name })
+        {
+            ConfigFolder = Path.Combine(ConfigRoot, key),
+        };
         Write(site.SettingsPath, site.Settings);
         _trace.Info($"Site '{name}' created in {folder}.");
         return site;
@@ -351,12 +415,14 @@ public sealed class SiteCatalog
     private string FreeKey(string wanted)
     {
         string key = wanted;
-        for (int n = 2; Directory.Exists(Path.Combine(Root, key)) || File.Exists(Path.Combine(Root, key)); n++)
+        for (int n = 2; Taken(Root, key) || Taken(ConfigRoot, key); n++)
         {
             key = string.Create(CultureInfo.InvariantCulture, $"{wanted}-{n}");
         }
 
         return key;
+
+        static bool Taken(string parent, string k) => Directory.Exists(Path.Combine(parent, k)) || File.Exists(Path.Combine(parent, k));
     }
 
     /// <summary>Through a temporary file, so a crash mid-write leaves the old file rather than half a new one.</summary>

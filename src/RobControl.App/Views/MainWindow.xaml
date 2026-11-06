@@ -44,13 +44,43 @@
         <MenuItem Header="Site _report..." Command="{Binding Fleet.ReportCommand}"
                   ToolTip="One page for the visit, from the backups: backup status, alarms needing a job, frequent alarms, watched setting changes, notes." />
         <MenuItem Header="_Open site folder" Command="{Binding OpenSiteFolderCommand}"
-                  ToolTip="Where site.json and this site's database live. site.json can be edited by hand while the site is closed." />
+                  ToolTip="Where site.json and the site's system folders live (Documents\RobControl\Systems). They can be edited by hand while the site is closed." />
+      </MenuItem>
+      <MenuItem Header="S_ystem">
+        <MenuItem Header="_Open system..." Command="{Binding ChooseSystemCommand}"
+                  ToolTip="Pick another system of this site or another site - or make a new one." />
+        <!-- One line per system of the open site; each carries its own command. -->
+        <MenuItem Header="_Switch to" ItemsSource="{Binding SystemChoices}">
+          <MenuItem.ItemContainerStyle>
+            <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+              <Setter Property="Header" Value="{Binding Name}" />
+              <Setter Property="IsChecked" Value="{Binding IsCurrent, Mode=OneWay}" />
+              <Setter Property="Command" Value="{Binding Command}" />
+            </Style>
+          </MenuItem.ItemContainerStyle>
+        </MenuItem>
+        <Separator />
+        <MenuItem Header="System s_ettings..." Command="{Binding EditSystemCommand}"
+                  ToolTip="Name, notes, and what a backup of this system takes: devices, folders, files to leave out." />
+        <MenuItem Header="Open system _folder" Command="{Binding OpenSystemFolderCommand}"
+                  ToolTip="Where this system's system.json lives. It can be edited by hand while the system is closed; robots typed into it by address are added when it is opened." />
       </MenuItem>
       <MenuItem Header="_Robots">
         <MenuItem Header="_Add robot..." Command="{Binding AddRobotCommand}" />
         <MenuItem Header="_Edit robot..." Command="{Binding EditRobotCommand}" />
         <MenuItem Header="_Remove robot" Command="{Binding RemoveRobotCommand}"
                   ToolTip="Takes it off the list. Its backups and its event log rows stay." />
+        <!-- One line per system of the open site: moves the selected robots there. -->
+        <MenuItem Header="_Move to system" ItemsSource="{Binding MoveChoices}"
+                  ToolTip="Moves the selected robots - and their own backup settings - into another system of this site. Their backups and history stay where they are.">
+          <MenuItem.ItemContainerStyle>
+            <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+              <Setter Property="Header" Value="{Binding Name}" />
+              <Setter Property="IsChecked" Value="{Binding IsCurrent, Mode=OneWay}" />
+              <Setter Property="Command" Value="{Binding Command}" />
+            </Style>
+          </MenuItem.ItemContainerStyle>
+        </MenuItem>
         <Separator />
         <MenuItem Header="_Probe selected" Command="{Binding ProbeSelectedCommand}"
                   ToolTip="Read-only: logs in over FTP and lists md:, reads the summary file, asks KCL for $VERSION. Says what it is and what is locked." />
@@ -71,8 +101,8 @@
         <MenuItem Header="_Compare backups" Command="{Binding CompareCommand}"
                   ToolTip="The two ticked backups - or, with none ticked, the newest against the one before it." />
         <Separator />
-        <MenuItem Header="Also copy _FR: (FROM)" IsCheckable="True" IsChecked="{Binding IncludeFrom}"
-                  ToolTip="md: is what matters for a file backup. FR: can be large." />
+        <MenuItem Header="Backup settings for this _system..." Command="{Binding EditSystemCommand}"
+                  ToolTip="Which devices a backup starts with, folders, files to leave out. Back up still asks each time; a scheduled backup uses these as they are." />
         <MenuItem Header="Sc_hedule while open">
           <MenuItem Header="_Off" Command="{Binding SetScheduleCommand}" CommandParameter="0" />
           <MenuItem Header="Every _4 hours" Command="{Binding SetScheduleCommand}" CommandParameter="4" />
@@ -123,7 +153,9 @@
         <TextBlock Grid.Column="0" Style="{StaticResource Muted}" Text="{Binding Status}"
                    TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" />
         <StackPanel Grid.Column="1" Orientation="Horizontal">
-          <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" ToolTip="The open site. Site menu to switch." />
+          <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" ToolTip="The open site. System > Open system to switch." />
+          <TextBlock Style="{StaticResource Muted}" Text=" / " />
+          <TextBlock Text="{Binding SystemName}" FontWeight="SemiBold" ToolTip="{Binding BackupDefaultsText}" />
           <TextBlock Style="{StaticResource Muted}" Text="  -  " />
           <TextBlock Style="{StaticResource Muted}" Text="{Binding ScheduleText}" />
           <TextBlock Style="{StaticResource Muted}" Text="  -  " />
@@ -147,7 +179,7 @@
           <Button Content="Probe" Command="{Binding ProbeSelectedCommand}"
                   ToolTip="Read-only check of the selected robot: what it is, and which ways in are open." />
           <Button Content="Back up" Style="{StaticResource PrimaryButton}" Command="{Binding BackupSelectedCommand}"
-                  ToolTip="FTP copy of md: into the archive. RETR only - nothing is written to the robot." />
+                  ToolTip="FTP copy into the archive - asks which devices first. RETR only - nothing is written to the robot." />
           <Button Content="Back up all" Command="{Binding BackupAllCommand}" />
           <Button Content="Stop" Command="{Binding StopCommand}" />
           <Border Style="{StaticResource ToolbarSeparator}" />
@@ -303,6 +335,100 @@
                   <DataGridTextColumn Header="Summary" Width="*" IsReadOnly="True" Binding="{Binding Summary, Mode=OneWay}" />
                 </DataGrid.Columns>
               </DataGrid>
+            </DockPanel>
+          </TabItem>
+
+          <TabItem Header="Live">
+            <DockPanel Margin="8" DataContext="{Binding Live}">
+              <StackPanel DockPanel.Dock="Top">
+                <WrapPanel>
+                  <Button Content="Read now" Style="{StaticResource PrimaryButton}" Command="{Binding ReadNowCommand}" Margin="0,0,10,0"
+                          ToolTip="GETs the controller's own diagnostic pages: active alarms, alarm history, program state, current position, I/O. Reads only." />
+                  <CheckBox Content="Every" IsChecked="{Binding AutoRefresh}" VerticalAlignment="Center" Margin="0,0,6,0"
+                            ToolTip="Reads again on a timer while this robot stays selected. Never faster than every 5 s, and skipped while it is being backed up, probed or recorded." />
+                  <TextBox Text="{Binding IntervalSeconds, UpdateSourceTrigger=LostFocus}" Width="44" FontFamily="{DynamicResource mono}" />
+                  <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,0,0" />
+                </WrapPanel>
+                <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
+              </StackPanel>
+
+              <TabControl>
+                <TabItem Header="Alarms">
+                  <Grid Margin="4">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="*" MinHeight="60" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="2*" MinHeight="80" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Style="{StaticResource PanelHead}" Text="ACTIVE NOW (ERRACT.LS)" Margin="2,0,0,4" />
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding ActiveAlarms}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="When" Width="125" Binding="{Binding When, Mode=OneWay, StringFormat=g}" />
+                        <DataGridTextColumn Header="Alarm" Width="85" Binding="{Binding Code, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Message" Width="*" Binding="{Binding Message, Mode=OneWay}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Grid.Row="2" Style="{StaticResource PanelHead}" Text="RECENT HISTORY (ERRALL.LS, NEWEST 50)" Margin="2,10,0,4" />
+                    <DataGrid Grid.Row="3" ItemsSource="{Binding RecentAlarms}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="When" Width="125" Binding="{Binding When, Mode=OneWay, StringFormat=g}" />
+                        <DataGridTextColumn Header="Alarm" Width="85" Binding="{Binding Code, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Message" Width="*" Binding="{Binding Message, Mode=OneWay}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </Grid>
+                </TabItem>
+
+                <TabItem Header="I/O">
+                  <DockPanel Margin="4">
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                      <TextBlock Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" />
+                      <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left"
+                               ToolTip="Shows only points whose name contains this: DO, UI[, RO[1" />
+                    </DockPanel>
+                    <DataGrid ItemsSource="{Binding Io}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Point" Width="110" Binding="{Binding Name, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Value" Width="*" Binding="{Binding Value, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </DockPanel>
+                </TabItem>
+
+                <TabItem Header="Program">
+                  <ScrollViewer Margin="4" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <TextBox Text="{Binding ProgramState, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                             FontFamily="{DynamicResource mono}" TextWrapping="NoWrap" />
+                  </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="Position">
+                  <ScrollViewer Margin="4" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <TextBox Text="{Binding Position, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                             FontFamily="{DynamicResource mono}" TextWrapping="NoWrap" />
+                  </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="Pages">
+                  <DataGrid Margin="4" ItemsSource="{Binding Pages}"
+                            AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                            GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="Page" Width="120" Binding="{Binding Title, Mode=OneWay}" />
+                      <DataGridTextColumn Header="File" Width="100" Binding="{Binding FileName, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                      <DataGridTextColumn Header="Result" Width="90" Binding="{Binding Status, Mode=OneWay}" />
+                      <DataGridTextColumn Header="Why" Width="*" Binding="{Binding Message, Mode=OneWay}" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </TabItem>
+              </TabControl>
             </DockPanel>
           </TabItem>
 

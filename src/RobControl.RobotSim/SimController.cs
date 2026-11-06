@@ -142,6 +142,7 @@ public sealed class SimController : IAsyncDisposable
         NetworkStream stream = client.GetStream();
         using var reader = new StreamReader(stream, Wire, false, 1024, leaveOpen: true);
         string device = _profile.HomeDevice;
+        var folder = new List<string>();
         string? user = null;
         bool loggedIn = false;
         TcpListener? passive = null;
@@ -201,12 +202,19 @@ public sealed class SimController : IAsyncDisposable
                         await Reply("200 Type set to " + arg + ".").ConfigureAwait(false);
                         break;
                     case "PWD":
-                        await Reply($"257 \"{device}\" is current directory.").ConfigureAwait(false);
+                        await Reply($"257 \"{device}{string.Concat(folder.Select(f => "\\" + f))}\" is current directory.").ConfigureAwait(false);
                         break;
                     case "CWD":
-                        if (_profile.DeviceFolder(arg) is not null)
+                        // "fr:" picks a device, from anywhere; a bare name goes one folder down from here.
+                        if (arg.Contains(':', StringComparison.Ordinal) && _profile.DeviceFolder(arg) is not null)
                         {
                             device = arg.ToLowerInvariant();
+                            folder.Clear();
+                            await Reply("250 CWD command successful.").ConfigureAwait(false);
+                        }
+                        else if (!arg.Contains(':', StringComparison.Ordinal) && SubFolder(device, folder, arg) is not null)
+                        {
+                            folder.Add(arg);
                             await Reply("250 CWD command successful.").ConfigureAwait(false);
                         }
                         else
@@ -233,7 +241,7 @@ public sealed class SimController : IAsyncDisposable
                             break;
                         }
 
-                        bool keepGoing = await TransferAsync(verb, arg, device, passive, Reply, cancellationToken).ConfigureAwait(false);
+                        bool keepGoing = await TransferAsync(verb, arg, device, folder, passive, Reply, cancellationToken).ConfigureAwait(false);
                         passive.Stop();
                         passive = null;
                         if (!keepGoing)
@@ -254,18 +262,30 @@ public sealed class SimController : IAsyncDisposable
         }
     }
 
+    /// <summary>The real folder for <paramref name="name"/> inside <paramref name="inside"/> on a device, or null.</summary>
+    private string? SubFolder(string device, IReadOnlyList<string> inside, string name)
+    {
+        if (_profile.DeviceFolder(device) is not { } root || name.Length == 0 || name.AsSpan().IndexOfAny("/\\.") >= 0)
+        {
+            return null;
+        }
+
+        string path = Path.Combine([root, .. inside, name]);
+        return Directory.Exists(path) ? path : null;
+    }
+
     /// <summary>Returns false when a fault says the control connection should now be dropped.</summary>
     private async Task<bool> TransferAsync(
-        string verb, string arg, string device, TcpListener passive, Func<string, Task> reply, CancellationToken cancellationToken)
+        string verb, string arg, string device, IReadOnlyList<string> inside, TcpListener passive, Func<string, Task> reply, CancellationToken cancellationToken)
     {
-        string folder = _profile.DeviceFolder(device)!;
+        string folder = Path.Combine([_profile.DeviceFolder(device)!, .. inside]);
         byte[] payload;
 
         if (verb == "RETR")
         {
             string name = arg.Trim();
             string path = Path.Combine(folder, name);
-            bool overridden = device.StartsWith("md", StringComparison.OrdinalIgnoreCase) && MdOverrides.ContainsKey(name);
+            bool overridden = inside.Count == 0 && device.StartsWith("md", StringComparison.OrdinalIgnoreCase) && MdOverrides.ContainsKey(name);
             if (Faults.RefuseFiles.ContainsKey(name) || name.AsSpan().IndexOfAny("/\\") >= 0 || (!overridden && !File.Exists(path)))
             {
                 await reply("550 " + name + ": File not found.").ConfigureAwait(false);
@@ -288,7 +308,7 @@ public sealed class SimController : IAsyncDisposable
         else
         {
             string prefix = _profile.NlstWithDevicePrefix ? device : string.Empty;
-            IEnumerable<string> names = Directory.EnumerateFiles(folder).Select(Path.GetFileName).Order(StringComparer.OrdinalIgnoreCase)!;
+            IEnumerable<string> names = Directory.EnumerateFileSystemEntries(folder).Select(Path.GetFileName).Order(StringComparer.OrdinalIgnoreCase)!;
             names = names.Concat(Faults.ExtraListedNames);
             var text = new StringBuilder();
             foreach (string name in names)
@@ -301,7 +321,8 @@ public sealed class SimController : IAsyncDisposable
                 {
                     string path = Path.Combine(folder, name);
                     long size = File.Exists(path) ? new FileInfo(path).Length : 0;
-                    text.Append(CultureInfo.InvariantCulture, $"-rw-rw-rw-   1 noone    nogroup  {size,10} Jan  1 00:00 {name}\r\n");
+                    char kind = Directory.Exists(path) ? 'd' : '-';
+                    text.Append(CultureInfo.InvariantCulture, $"{kind}rw-rw-rw-   1 noone    nogroup  {size,10} Jan  1 00:00 {name}\r\n");
                 }
             }
 

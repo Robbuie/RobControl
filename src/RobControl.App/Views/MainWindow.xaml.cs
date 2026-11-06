@@ -54,6 +54,9 @@ public partial class MainWindow : Window
             old.PickFolder = null;
             old.OpenFolder = null;
             old.EditSiteDialog = null;
+            old.EditSystemDialog = null;
+            old.PickSystemDialog = null;
+            old.ChooseBackupDialog = null;
             old.PickSiteFileToOpen = null;
             old.PickSiteFileToSave = null;
             old.Trend.PickSaveFile = null;
@@ -82,6 +85,9 @@ public partial class MainWindow : Window
             viewModel.PickFolder = PickFolder;
             viewModel.OpenFolder = folder => Shell.Open(this, folder);
             viewModel.EditSiteDialog = ShowSiteDialog;
+            viewModel.EditSystemDialog = ShowSystemDialog;
+            viewModel.PickSystemDialog = ShowSystemPicker;
+            viewModel.ChooseBackupDialog = choice => new BackupChoiceWindow(choice) { Owner = this }.ShowDialog() == true;
             viewModel.PickSiteFileToOpen = PickSiteFileToOpen;
             viewModel.PickSiteFileToSave = PickSiteFileToSave;
             viewModel.Trend.PickSaveFile = PickCsvFile;
@@ -114,6 +120,18 @@ public partial class MainWindow : Window
     {
         var dialog = new SiteWindow(draft, isNew) { Owner = this };
         return dialog.ShowDialog() == true ? dialog.Result : null;
+    }
+
+    private SystemDraft? ShowSystemDialog(SystemDraft draft)
+    {
+        var dialog = new SystemWindow(draft) { Owner = this };
+        return dialog.ShowDialog() == true ? dialog.Result : null;
+    }
+
+    private SystemChoice? ShowSystemPicker(SystemPickerViewModel picker)
+    {
+        var dialog = new SystemPickerWindow(picker) { Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        return dialog.ShowDialog() == true ? dialog.Choice : null;
     }
 
     private string? PickSiteFileToOpen()

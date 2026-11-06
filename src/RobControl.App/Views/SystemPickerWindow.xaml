@@ -1,0 +1,103 @@
+<Window x:Class="RobControl.App.Views.SystemPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:RobControl.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:SystemPickerViewModel}"
+        Title="Open a system"
+        Width="760" Height="500"
+        MinWidth="600" MinHeight="380"
+        WindowStartupLocation="CenterScreen"
+        Style="{StaticResource ChromeDialog}">
+
+  <DockPanel Margin="18,12,18,14">
+
+    <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelTitle}" Text="Which system are you working on?" />
+    <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,10">
+      <Run Text="A site is a plant; a system is a line or cell in it, with its own robots and backup settings. Settings are in " />
+      <Run Text="{Binding ConfigFolder, Mode=OneWay}" FontFamily="{DynamicResource mono}" />
+    </TextBlock>
+
+    <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource FaultText}" TextWrapping="Wrap" Margin="0,8,0,0"
+               Text="{Binding Problem}" Visibility="{Binding Problem, Converter={StaticResource NotNullToVisible}}" />
+
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button Content="Open" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="90"
+                Command="{Binding OpenCommand}" />
+        <Button Content="{Binding CancelText}" MinWidth="80" Margin="8,0,0,0" Click="OnCancel" />
+      </StackPanel>
+      <TextBlock Style="{StaticResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap"
+                 Text="Double-click a system to open it. You can switch later from the System menu." />
+    </DockPanel>
+
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="5*" />
+        <ColumnDefinition Width="12" />
+        <ColumnDefinition Width="6*" />
+      </Grid.ColumnDefinitions>
+
+      <!-- ============================== Sites ============================== -->
+      <DockPanel Grid.Column="0">
+        <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="SITES" Margin="0,0,0,4" />
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+          <Button DockPanel.Dock="Right" Content="New site" Command="{Binding CreateSiteCommand}" Margin="6,0,0,0" />
+          <TextBox Text="{Binding NewSiteName, UpdateSourceTrigger=PropertyChanged}"
+                   ToolTip="A new plant: its own robots, history and archive folder. Type a name, then New site." />
+        </DockPanel>
+        <Border Style="{StaticResource Card}" Padding="2">
+          <DataGrid ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}"
+                    AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="None"
+                    GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0">
+            <DataGrid.Columns>
+              <DataGridTemplateColumn Width="*">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate DataType="{x:Type vm:SitePickRow}">
+                    <StackPanel Margin="4,3">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Detail}" Style="{StaticResource Muted}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+        </Border>
+      </DockPanel>
+
+      <!-- ============================== Systems ============================== -->
+      <DockPanel Grid.Column="2">
+        <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Margin="0,0,0,4">
+          <Run Text="SYSTEMS IN " /><Run Text="{Binding SelectedSite.Name, Mode=OneWay}" />
+        </TextBlock>
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+          <Button DockPanel.Dock="Right" Content="New system" Command="{Binding CreateSystemCommand}" Margin="6,0,0,0" />
+          <TextBox Text="{Binding NewSystemName, UpdateSourceTrigger=PropertyChanged}"
+                   ToolTip="A line, a cell, a job: its own robot list and backup settings, in its own folder. Type a name, then New system." />
+        </DockPanel>
+        <Border Style="{StaticResource Card}" Padding="2">
+          <DataGrid ItemsSource="{Binding Systems}" SelectedItem="{Binding SelectedSystem}"
+                    AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="None"
+                    GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0"
+                    MouseDoubleClick="OnSystemDoubleClick">
+            <DataGrid.Columns>
+              <DataGridTemplateColumn Width="*">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate DataType="{x:Type vm:SystemPickRow}">
+                    <StackPanel Margin="4,3">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Detail}" Style="{StaticResource Muted}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+        </Border>
+      </DockPanel>
+    </Grid>
+  </DockPanel>
+</Window>

@@ -58,6 +58,16 @@ public static class AppPaths
         "RobControl Backups");
 
     /// <summary>
+    /// Where the settings people open, edit and copy live: <c>Documents\RobControl\Systems</c>, one
+    /// folder per site holding its <c>site.json</c> and one folder per system holding its
+    /// <c>system.json</c>. The databases stay under <see cref="Sites"/>.
+    /// </summary>
+    public static string Systems { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments, Environment.SpecialFolderOption.DoNotVerify),
+        "RobControl",
+        "Systems");
+
+    /// <summary>
     /// The optional settings file. Absent by default and absent on most machines: everything it can
     /// hold has a working default, and the tool has to run correctly on a laptop where nobody has
     /// ever created it.

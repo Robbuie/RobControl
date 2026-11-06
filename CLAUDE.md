@@ -57,7 +57,8 @@ changes a controller's security or Host Comm settings itself.** It tells the per
 
 Worth being clear about, because people use the word "backup" for both:
 
-- **FTP file backup** (what RobControl does): the files from `MD:` (and optionally `FR:`) while
+- **FTP file backup** (what RobControl does): the files from `MD:` (and whichever other devices are
+  ticked - `FR:`, `FRA:`, a card or stick - with their folders) while
   the controller runs normally. Programs, system variable files, I/O config, ASCII listings for
   diffing. Restorable file-by-file at a controlled start. Does **not** restore a dead controller
   by itself.
@@ -128,6 +129,10 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
     Events/                        IEventSink - how Core writes the record without knowing SQLite; EventLogCsv
     Sites/                         SiteSettings (site.json), SiteCatalog, export file (SiteFile/SiteRobot),
                                    SiteBundle + SiteBundleImport (whole site as a zip, imported as a new site)
+    Systems/                       SystemSettings (system.json), SystemCatalog, SystemMembership (which robots
+                                   a system shows, robots a file names that the database lacks), BackupProfile
+                                   (system/robot backup settings, resolved into BackupOptions)
+    Live/                          LiveReader - the Live tab's GETs of diagnostic pages, kept verbatim
     Help/                          MarkdownLite - the README/CHANGELOG subset, parsed for Help > Read me
     Insight/                       Read-only views over the archive: ProgramListingParser + CrossReference,
                                    BackupSearch, AlarmLogParser + AlarmHistory, SettingsWatch,
@@ -136,12 +141,13 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
     Diagnostics/                   TraceLog (copied from NetControl)
 src/RobControl.App/                WPF front end - net10.0-windows
     Appearance/                    copied value for value from NetControl; default accent amber
-    Composition/                   AppHost (owns the open site, switches it), AppPaths, dispatcher,
-                                   UserSettings (last site), ISiteHost, NetControlHandoff
+    Composition/                   AppHost (owns the open site and system, switches them), AppPaths, dispatcher,
+                                   UserSettings (last site and system), ISiteHost / ISystemDirectory, NetControlHandoff
     Diagnostics/                   build stamp and the updater, copied from NetControl
     ViewModels/                    all UI logic, free of WPF types; Search/Alarms/Fleet tabs read a
                                    FleetContext snapshot of the open site
-    Views/                         MainWindow, RobotWindow, SiteWindow, DocumentWindow + MarkdownRenderer
+    Views/                         MainWindow, SystemPickerWindow (first window), BackupChoiceWindow (devices
+                                   per backup), SystemWindow, RobotWindow, SiteWindow, DocumentWindow + MarkdownRenderer
                                    (Help > Read me / What's new), TrendChart (hand-drawn), Appearance/Update
 src/RobControl.RobotSim/           fake controller (FTP + HTTP) serving a profile folder; records
                                    every command and refuses - and lists - anything not a read
@@ -161,10 +167,13 @@ against those, not against what we think a controller says.
 The person goes from plant to plant. A **site** is everything RobControl knows about one plant, and
 sites are **fully separate**:
 
-- `%LOCALAPPDATA%\RobControl\sites\<key>\site.json` - name, archive folder, robots at once,
-  schedule, FR: on/off, trend retention, the FTP login new robots start with, notes. Plain JSON,
-  camelCase, comments and trailing commas forgiven, every value clamped on load. Hand-editable
-  while the site is not open (the app rewrites it when a setting changes).
+- `Documents\RobControl\Systems\<key>\site.json` (since 0.6.0; `AppPaths.Systems`) - name, archive
+  folder, robots at once, schedule, trend retention, the FTP login new robots start with, notes, and
+  `includeFrom` (now only the fallback for a system that names no devices). Plain JSON, camelCase,
+  comments and trailing commas forgiven, every value clamped on load. Hand-editable while the site
+  is not open (the app rewrites it when a setting changes). 0.5.0 kept it beside the database;
+  `SiteCatalog.Load` moves it across the first time (copies if the move fails). `SiteCatalog` takes
+  the two roots separately; with no config root (the older tests) they are the same folder.
 - `...\sites\<key>\robcontrol.db` - that site's robots, probes, event log and trends. No site ever
   reads another's database, so two plants' R1-01 at the same address can never be confused.
 - Each site has its own archive root (default `Documents\RobControl Backups\<site>`).
@@ -180,6 +189,33 @@ sites are **fully separate**:
   site - never merged into an existing one. Robots in an import go through the same unicast and
   duplicate-address checks as the robot dialog.
 
+## Systems - lines and cells inside a site
+
+A **system** is a group of a site's robots worked on together: a line, a cell, a job. It is files
+only - `Documents\RobControl\Systems\<site key>\<system key>\system.json`:
+
+- `name`, `notes`, `backup` (a `BackupProfile`: `devices`, `includeSubfolders`, `exclude`,
+  `pauseBetweenFilesMs`, `attemptsPerFile` - every field optional) and `robots`: entries keyed by
+  **address + FTP port** (the dialog's "same controller" rule), each with a `name` for the reader and
+  an optional `backup` overriding the system's. `BackupProfile.Resolve` lays robot over system over
+  built-in defaults (MD:, subfolders on, 2 tries) and clamps everything.
+- **The robots stay in the site database.** Probes, events and trends refer to robot ids; the file
+  only says which robots belong. `SystemMembership.Members` decides what a system shows.
+- **Every robot belongs somewhere.** `SystemCatalog.EnsureAny` gives a site with no systems one called
+  `Main` listing every robot it has (every pre-0.6.0 site, every import). Robots no file lists after
+  that - a hand edit - are shown under the pseudo-system "Not in a system" (`RobotSystem.Unassigned`),
+  never hidden.
+- **A file can add robots.** On open, entries the database lacks (`SystemMembership.Adoptable`) are
+  added with the site's FTP login, through the same unicast / unique-name / one-row-per-controller
+  rules as the dialog. That is what makes copying a system folder to another laptop work.
+- One system open at a time (`AppHost.Open(SystemChoice)`). Switching system in the same site keeps
+  the database and rebuilds the view model; switching site swaps both. The app starts on
+  `SystemPickerWindow` with `ShutdownMode.OnExplicitShutdown` until the main window exists;
+  `--site`/`--system`/`--robot` skip the picker.
+- The duplicate-address check in the robot dialog runs against the whole site's database, not the
+  open system's list. Scheduled backups cover the open system's robots. Site export and bundle carry
+  the whole site's robots but not its systems - an imported site gets `Main`.
+
 ## Backups - the archive
 
 - Plain files on disk, readable without the app:
@@ -193,6 +229,16 @@ sites are **fully separate**:
 - **A backup is complete or it is marked incomplete.** Files land in `<stamp>.partial`; only once the
   manifest is written is it renamed - to `<stamp>` if every listed file arrived, `<stamp>_INCOMPLETE`
   otherwise. A crash leaves a `.partial` folder the history shows as unreadable.
+- **Devices and folders.** `BackupOptions.Devices` is chosen per backup (`BackupChoiceWindow`, ticked
+  from the resolved profile; scheduled backups use the profile as is). `FleetBackup` takes
+  `optionsFor` so every robot can have its own. With `IncludeSubfolders`, the walk goes into folders
+  up to `MaxFolderDepth` (4): a listed name **without a dot** is tried with a relative `CWD`; accepted
+  means folder, refused means file. Nothing extra is sent on MD: (every name has an extension).
+  Position is always rebuilt from `CWD <device>` then one relative `CWD` per level - never `..`.
+  Files land at `<DEVICE>/<sub>/<file>`; the record's `Name` is the path inside the device. Folders
+  not copied (subfolders off, too deep) and files an `exclude` pattern matched go in the manifest's
+  `notCopied` and **do not make a backup partial**; copied folders are in `folders`.
+  `FileNamePattern` is `*` and `?` only, case-insensitive, `*` not crossing `/`.
 - **A name from the controller is untrusted input headed for the disk.** `ArchiveNames.IsSafeFileName`
   either accepts a listed name as-is or the file is skipped and recorded - never "cleaned up" into a
   name that does not match the robot.
@@ -264,6 +310,16 @@ exactly what a real controller does instead.
 
 - FTP accepts `anonymous` with an empty password unless Host Comm has FTP users set up.
   (`FtpCredentials.Default`; the user remembers the manual giving a default login - confirm which.)
+- `CWD fr:` selects a device from anywhere, and a **relative** `CWD <name>` enters a folder inside it
+  and is refused (550) for a file name. Folder names have no dot; file names always have an
+  extension. `FR:` and `FRA:` have folders, `MD:` none. Whether `NLST` inside a folder returns bare
+  names or `SUB/NAME` (or `SUB\NAME`) - `BackupRunner.Walk.Plain` strips either. **Check on the first
+  real `FR:`/`FRA:` backup** and look at the transcript.
+- Device names: `MD:`, `FR:`, `FRA:` (Auto Backup), `MC:`, `UD1:`, `UT1:`, `RD:`. A device that is
+  not there (no card, no stick) refuses the `CWD`; that device fails, the rest arrive.
+- The Live pages: `ERRACT.LS` (active alarms), `ERRALL.LS`, `PRGSTATE.DG`, `CURPOS.DG`, `IOSTATE.DG`
+  at `/MD/<name>`; 404 for one a controller does not make. `LiveReader` keeps them verbatim and only
+  the alarm and I/O parsers (which search) read into them. The probe tool now fetches `ERRACT.LS` too.
 - `CWD md:` selects the device; `NLST` lists bare names (the sim can also prefix them with `md:` -
   `SimProfile.NlstWithDevicePrefix` - and `ArchiveNames.StripDevice` copes either way).
 - Passive mode works. Active mode is not built; `PassiveEndpoint` says so if PASV is refused.
@@ -360,7 +416,8 @@ ignore lists for noisy files and lines; plain-words change log ("WELD_A line 42:
 mm/s"); quick "programs and registers only" backup profile; diagnostics bundle for FANUC support.
 
 **Phase 3 - inspect.** KCL console (classified), system variable / register browser (read),
-alarm history, live I/O view (read), diagnostics bundle for FANUC support.
+alarm history, live I/O view (read), diagnostics bundle for FANUC support. *0.6.0 started it:* the
+Live tab (active alarms, recent history, I/O, program state, position from diagnostic pages).
 
 **Phase 4 - trend.** *Started in 0.2.0:* registers, I/O and system variables polled into SQLite on
 many robots at once, chart, CSV. Still to do - the process-engineer side, each depending on what
@@ -391,6 +448,21 @@ implicit usings, as WPF does** - which is how the 0.4.0 break (Search, Alarms an
 using `File`/`IOException` without `using System.IO`) was found and fixed. XAML (the Fleet tab's
 lower half is now a TabControl: Setting changes / Network / Backup check; the site dialog's new
 Stale after / Retries / Keep rows) compiles only in CI.
+
+**0.6.0 - systems, device choice per backup, folders inside devices, per-robot backup settings,
+Live tab. Still never in front of a real controller.**
+
+Written in a session with the .NET 10 SDK from Ubuntu's archive and no NuGet, as before: Core,
+RobotSim and the suite (now ~350 cases, with `BackupDevicesTests`, `SystemCatalogTests`,
+`LiveReaderTests`) built under warnings-as-errors against a Microsoft.Data.Sqlite shim over the system
+libsqlite3 and a stand-in xUnit, and passed. The view models, `AppHost` and `Composition` compiled
+against a CommunityToolkit.Mvvm stand-in with `System.IO` removed from the implicit usings; a
+throwaway console drove `MainViewModel` against `robotsim` (add robot -> system.json, duplicate
+address across systems refused, backup through the device dialog with an FR: subfolder, address edit
+moving the entry, move to another system, remove, system settings) and `BackupChoiceViewModel`,
+`SystemPickerViewModel` and `LiveViewModel`. **The XAML and code-behind (`App.xaml.cs`,
+`SystemPickerWindow`, `BackupChoiceWindow`, `SystemWindow`, `RobotWindow`, the Live tab and the
+System menu) compile only in CI** - the `verify` run is their first check.
 
 **Decided against, on purpose:** a subnet scan to discover robots. *Safety* says no broadcast,
 multicast or sweep from RobControl - discovery is NetControl's job. A NetControl-to-RobControl
@@ -437,7 +509,9 @@ answering, and KCL locked; the sample tables were checked with Python's sqlite3 
 
 ### Pick up here
 
-0. **Push 0.5.0 and read the `verify` run** - it is the first compile of 0.4.0's and 0.5.0's XAML.
+0. **Push 0.6.0 and read the `verify` run** - the first compile of 0.4.0-0.6.0's XAML. Then run it
+   once on a PC with a 0.5.0 profile: the picker should show each old site with no systems, opening
+   one should make `Main` with all its robots, and `site.json` should have moved to Documents.
 1. **Run 0.3.x once over a 0.2.0 profile** and check the robots, history and event log arrived in
    "My site"; open Help > Read me in both themes.
 2. **Phase 0 with a real robot**: `robcontrol-probe <address>` on a V9.40 SpotTool robot, read

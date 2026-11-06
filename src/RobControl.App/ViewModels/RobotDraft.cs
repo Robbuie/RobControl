@@ -3,6 +3,7 @@ using System.Net;
 using RobControl.Core;
 using RobControl.Core.Net;
 using RobControl.Core.Robots;
+using RobControl.Core.Systems;
 using RobControl.Core.Transports.Ftp;
 
 namespace RobControl.App.ViewModels;
@@ -31,11 +32,21 @@ public sealed record RobotDraft
 
     public string HttpPort { get; init; } = "80";
 
-    public static RobotDraft From(Robot robot)
+    /// <summary>This robot's own backup settings - blank fields use the system's.</summary>
+    public BackupProfileDraft Backup { get; init; } = new();
+
+    /// <summary>The system the robot is in, for the dialog to say whose settings blank means. Null: not in one.</summary>
+    public string? SystemName { get; init; }
+
+    /// <summary>"MD:" - what the system backs up, shown beside the blank Devices box.</summary>
+    public string SystemDevices { get; init; } = string.Empty;
+
+    public static RobotDraft From(Robot robot, BackupProfile? backup = null)
     {
         ArgumentNullException.ThrowIfNull(robot);
         return new RobotDraft
         {
+            Backup = BackupProfileDraft.From(backup),
             Id = robot.Id,
             Name = robot.Name,
             Address = robot.Address.ToString(),

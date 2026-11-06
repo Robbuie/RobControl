@@ -25,6 +25,11 @@ public sealed record UserSettings
     /// <summary>The key (folder name) of the site open last time. Null on a first run.</summary>
     public string? Site { get; init; }
 
+    /// <summary>The key of the system open last time, in <see cref="Site"/>. The picker starts on it.</summary>
+    [JsonPropertyName("System")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SystemKey { get; init; }
+
     // ---------------------------------------------------------------- 0.2.0 and earlier, read once
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -67,7 +72,7 @@ public sealed record UserSettings
     }
 
     /// <summary>The same settings with the pre-site properties dropped, once they have been carried over.</summary>
-    public UserSettings WithoutLegacy() => new() { Site = Site };
+    public UserSettings WithoutLegacy() => new() { Site = Site, SystemKey = SystemKey };
 
     /// <summary>Never throws: a file nobody can read gives the defaults, and the log says why.</summary>
     public static UserSettings Load(ITraceLog? trace = null)

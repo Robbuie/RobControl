@@ -14,7 +14,8 @@ settings to make itself work - when something is locked, it says where on the pe
 
 | | |
 |---|---|
-| **Back up** | FTP copy of `md:` (optionally `fr:`) for one robot or the whole fleet, a few at a time. Plain dated folders you can open in Explorer, a `manifest.json` with the SHA-256 of every file, and the FTP transcript. Anything cut short is marked `_INCOMPLETE` - never a folder that looks like a good backup. |
+| **Back up** | FTP copy of the devices you tick each time - `md:`, `fr:`, `fra:`, a memory card or USB stick - and the folders inside them, for one robot or the whole fleet, a few at a time. Plain dated folders you can open in Explorer, a `manifest.json` with the SHA-256 of every file, and the FTP transcript. Anything cut short is marked `_INCOMPLETE` - never a folder that looks like a good backup. |
+| **Live** | What the selected robot says right now, from its own web pages: active alarms, recent alarm history, I/O, program state and current position. Read once or every few seconds; reads only. |
 | **Probe** | What the controller is - generation, software version, application, arm, F-number - and which ways in are open: FTP, diagnostic files, KCL - and whether its clock agrees with this PC's. When something is locked it says where on the pendant to change it, and does not change it itself. |
 | **Compare** | Any two backups of a robot: which files changed, were added or removed, and the line diff of the ASCII listings (`.LS`, `.VA`). |
 | **Schedule** | Fleet backups every 4/8/12/24 hours while the app is open. A robot whose scheduled backup fails or comes back partial is tried again a few minutes later. |
@@ -23,7 +24,7 @@ settings to make itself work - when something is locked, it says where on the pe
 | **Search** | Across every robot's newest backup (or the whole history): a program name, `R[45]`, `DO[120]` or any text. Shows which programs call a program or use a register, and which programs nothing calls. |
 | **Alarms** | Alarm history from the alarm logs in the backups, merged across backups: most frequent alarms, alarms per robot, mean time between alarms, and battery, collision and mastering alarms called out. |
 | **Fleet** | Every robot's model, software and serial, how its backups stand (OK, failing, stale, never), changes to tool and user frames, payload, mastering and other watched settings, and its network settings as the backup records them. CSV export and a one-page site report. |
-| **Sites** | One per plant: its own robot list, archive folder, schedule, event log and trends. Switch from the Site menu; export a site to a file - or the whole site, history and backups, to one zip - to carry it to another laptop. |
+| **Sites and systems** | A site per plant, and systems - lines or cells - inside it, each with its own robot list and backup settings in a `system.json` you can open in Notepad. RobControl opens on a picker: choose a system or make a new one. Export a site to a file - or the whole site, history and backups, to one zip - to carry it to another laptop. |
 | **Many at once** | Ctrl/Shift-click robots in the list and Probe, Back up and Trends act on all of them. |
 | **Event log** | Every probe, backup, KCL read and trend session, append-only at the database. Export it as CSV for plant IT. |
 | **CSV everywhere** | Alarms, search hits, where-used, the robot list, network settings, trends and the event log all export to CSV for Excel. |
@@ -31,13 +32,17 @@ settings to make itself work - when something is locked, it says where on the pe
 
 ## Getting started
 
-1. **Pick or name your site.** The first time, RobControl opens a site called *My site*. Rename it
-   to the plant from **Site > Site settings**, or make one per plant with **Site > New site**.
+1. **Pick a system.** RobControl opens on a list of sites and their systems. The first time there is
+   a site called *My site* with a system called *Main*; type a name and press **New site** or
+   **New system** to make your own, then **Open**. Rename either later from **Site > Site settings**
+   and **System > System settings**.
 2. **Add a robot** - its name, as the plant calls it, and the controller's IPv4 address. A controller
-   with no FTP users set up accepts `anonymous` with no password, which is the default.
+   with no FTP users set up accepts `anonymous` with no password, which is the default. It goes into
+   the open system.
 3. **Probe** it. RobControl says what the controller is (model, software version, application) and
    which ways in are open: FTP, the web server's diagnostic files, KCL.
-4. **Back up.** The files from `md:` land in the site's archive folder. Select several robots with
+4. **Back up.** A dialog asks which devices to copy this time, ticked from the system's settings;
+   press Enter for those. The files land in the site's archive folder. Select several robots with
    Ctrl- or Shift-click to back them up together, or use **Back up all**.
 5. **Compare** two backups of a robot to see which programs and variables changed.
 
@@ -48,7 +53,7 @@ A site is one plant. Each site has its own:
 - robot list, event log and trend data - two plants can both have an R1-01 at the same address
   without ever being confused;
 - archive folder for backups (by default `Documents\RobControl Backups\<site name>`);
-- backup schedule, how many robots are backed up at once, and whether `fr:` is copied too;
+- backup schedule and how many robots are backed up at once;
 - FTP login that new robots start with - handy when a plant uses one login on every controller;
 - notes, for whatever is worth knowing next visit.
 
@@ -81,6 +86,81 @@ site, and its event log and trends come only when its database matches its robot
 somebody has edited one and not the other, the robots come from the site file and the history
 stays out, and the import says so. Both files contain FTP passwords where robots have them - keep
 them like a list of logins.
+
+## Systems
+
+A system is a group of robots in a site that you work on together - a line, a cell, a job. Each
+has its own robot list and its own backup settings, and lives in a folder of its own:
+
+```
+Documents\RobControl\Systems\<site>\site.json
+Documents\RobControl\Systems\<site>\<system>\system.json
+```
+
+RobControl opens on the **system picker**: sites on the left, their systems on the right, with
+**New site** and **New system** under each list. **System > Open system** brings it back to switch;
+**System > Switch to** jumps straight to another system of the same site. **Robots > Move to system**
+moves the selected robots - and their own backup settings - to another system; their backups and
+history stay where they are.
+
+`system.json` is plain JSON you can edit in Notepad while the system is not open:
+
+```
+{
+  "name": "Line 4 framer",
+  "notes": "Cell PLC is 10.20.4.10",
+  "backup": { "devices": [ "MD:", "FR:" ], "includeSubfolders": true, "exclude": [ "*.DG" ] },
+  "robots": [
+    { "address": "10.20.4.11", "ftpPort": 21, "name": "R1" },
+    { "address": "10.20.4.12", "ftpPort": 21, "name": "R2", "backup": { "devices": [ "MD:", "FRA:" ] } }
+  ]
+}
+```
+
+- **backup** is what Back up starts with for every robot in the system, and what a scheduled backup
+  takes. **System > System settings** edits it.
+- A robot's own **backup** overrides any of those for that robot only - in the robot dialog under
+  *Backup - this robot only*. Blank there means "as the system says".
+- A robot typed into `robots` by address is **added** when the system is opened, with the site's
+  FTP login - so a system folder copied from another laptop brings its robot list with it.
+- The robot list, event log and trends stay in the site's database in your profile, not in
+  Documents: a synced Documents folder and a database do not mix.
+
+Sites from before systems get a system called *Main* holding all their robots, and their
+`site.json` moves into the folder above the first time they are opened. Scheduled backups cover the
+robots of the open system.
+
+## Backups - what is copied
+
+A backup copies whole devices off the controller over FTP, read-only:
+
+| Device | What is on it |
+|---|---|
+| `MD:` | Programs (`.TP`), system variables (`.SV`, `.VR`), I/O config (`.IO`) - and the readable `.LS`, `.VA` and `.DG` listings the controller writes as they are read. The one that matters. |
+| `FR:` | F-ROM: files kept on the controller - KAREL programs, user files, logs. Can be large. |
+| `FRA:` | The controller's own Auto Backup area, one folder per copy it has made. Large. |
+| `MC:`, `UD1:`, `UT1:` | Memory card, USB stick in the cabinet, USB stick in the pendant - only if one is in. |
+| `RD:` | RAM disk. |
+
+**Back up** asks which devices every time, ticked from the system's settings (and the robot's own,
+when it has some). Other devices can be typed in. With **folders** ticked, the folders inside a
+device are copied too, up to four levels down, into the same shape in the archive
+(`FR\LOGBOOK\...`). A folder that is not copied, or a file left out by a pattern such as `*.DG`,
+is listed in the backup's `manifest.json` and does not make the backup partial. A device the
+controller does not have - a USB stick that is not in - fails on its own and the rest still arrive.
+
+An FTP backup is not an image backup: it restores files, not a dead controller. For that, use the
+controller's own image backup (boot monitor, or Auto Backup to `FRA:` or a memory card).
+
+## Live
+
+The **Live** tab reads the selected robot's own diagnostic pages from its web server: active alarms
+(`ERRACT.LS`), the newest 50 lines of alarm history (`ERRALL.LS`), I/O (`IOSTATE.DG`), program
+state (`PRGSTATE.DG`) and current position (`CURPOS.DG`). **Read now** reads them once; **Every**
+reads again on a timer, never faster than every 5 seconds, while that robot stays selected. It
+skips a robot that is being backed up, probed or recorded, so it never opens a second connection.
+A page a controller does not serve is shown as *not available* under **Pages**; if the diagnostic
+files are locked, unlock them under **Setup > Host Comm > HTTP** on the pendant.
 
 ## Trends
 
@@ -171,7 +251,8 @@ opens it in the browser, to print or save as PDF. It is made from the backups al
 | | |
 |---|---|
 | **Backups** | The site's archive folder: `<robot>\<date_time>\MD\...`, with a `manifest.json` (SHA-256 of every file) and the FTP transcript in each. Readable in Explorer without RobControl. A backup cut short ends in `_INCOMPLETE`. |
-| **Sites** | `%LOCALAPPDATA%\RobControl\sites\` - a folder per site with its `site.json` and its database. **Site > Open site folder** goes there. |
+| **Sites and systems** | `Documents\RobControl\Systems\` - a folder per site with its `site.json`, and a folder per system with its `system.json`. **Site > Open site folder** and **System > Open system folder** go there. |
+| **Databases** | `%LOCALAPPDATA%\RobControl\sites\<site>\robcontrol.db` - the robot list, probes, event log and trends of each site. |
 | **Site reports, CSV exports and bundles** | Wherever you save them; RobControl suggests a name with the site and the date. |
 | **Event log** | In the site's database; the **Event log** tab shows it and **Export CSV** there writes it all - every probe, backup, KCL read and trend session, and what came back. What to hand plant IT or a FANUC engineer who asks what this laptop has been doing on their network. |
 | **Diagnostic log** | `%LOCALAPPDATA%\RobControl\logs` - **Help > Open the diagnostic log folder**. Send this when something misbehaves. |
@@ -181,8 +262,8 @@ opens it in the browser, to print or save as PDF. It is made from the backups al
 
 | | |
 |---|---|
-| `RobControl.exe --site "Plant 3"` | Opens that site instead of the one used last. |
-| `RobControl.exe --robot 10.20.1.54` | Selects that robot in the open site - how NetControl's *Open in RobControl* lands. |
+| `RobControl.exe --site "Plant 3" --system "Line 4"` | Opens that system without the picker. Without `--system`, the system used last there, or the first. |
+| `RobControl.exe --robot 10.20.1.54` | Opens the system used last, without the picker, and selects that robot - how NetControl's *Open in RobControl* lands. |
 
 ## Help
 

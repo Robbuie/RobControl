@@ -47,6 +47,16 @@ public sealed record BackupManifest
     /// <summary>Listed but deliberately not fetched - a name that is not safe to write to disk.</summary>
     public IReadOnlyList<BackupFileProblem> Skipped { get; init; } = [];
 
+    /// <summary>
+    /// Left out on purpose: files an exclude pattern matched, and folders not copied because
+    /// subfolders were off or too deep. Not a problem - the backup is what was asked for - so these
+    /// never make it partial. Empty in manifests written before 0.6.0.
+    /// </summary>
+    public IReadOnlyList<BackupFileProblem> NotCopied { get; init; } = [];
+
+    /// <summary>Folders inside a device that were copied: <c>FR:/LOGBOOK</c>. Empty before 0.6.0.</summary>
+    public IReadOnlyList<string> Folders { get; init; } = [];
+
     [JsonIgnore]
     public long TotalBytes => Files.Sum(f => f.Bytes);
 
