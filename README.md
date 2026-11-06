@@ -143,7 +143,9 @@ A backup copies whole devices off the controller over FTP, read-only:
 | `RD:` | RAM disk. |
 
 **Back up** asks which devices every time, ticked from the system's settings (and the robot's own,
-when it has some). Other devices can be typed in. With **folders** ticked, the folders inside a
+when it has some). Other devices can be typed in. **System settings** and the robot dialog pick their
+devices the same way, with tick boxes and an **Other** box; in the robot dialog, nothing ticked means
+"as the system says". With **folders** ticked, the folders inside a
 device are copied too, up to four levels down, into the same shape in the archive
 (`FR\LOGBOOK\...`). A folder that is not copied, or a file left out by a pattern such as `*.DG`,
 is listed in the backup's `manifest.json` and does not make the backup partial. A device the

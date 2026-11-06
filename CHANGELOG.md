@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1 - devices as tick boxes
+
+- **Devices are tick boxes** in System settings and the robot dialog, the same list Back up offers,
+  with an **Other** box for anything else. No more typing `MD:, FR:` by hand.
+
 ## 0.6.0 - systems, device choice per backup, folders, Live
 
 Nothing new is sent to a robot except the Live tab's GETs of diagnostic pages the probe and trends

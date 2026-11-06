@@ -33,7 +33,7 @@ public partial class RobotWindow : Window
         PauseBox.Text = draft.Backup.PauseMs;
         BackupHint.Text = draft.SystemName is null
             ? "This robot is not in a system, so it is backed up with the defaults (MD:). Move it into a system to give it settings of its own."
-            : $"Blank uses system '{draft.SystemName}': {draft.SystemDevices}. Back up still asks which devices each time.";
+            : $"Anything left blank or unticked uses system '{draft.SystemName}': {draft.SystemDevices}. Back up still asks which devices each time.";
         bool inSystem = draft.SystemName is not null;
         DevicesBox.IsEnabled = inSystem;
         SubfoldersBox.IsEnabled = inSystem;
