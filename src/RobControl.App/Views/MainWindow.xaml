@@ -13,10 +13,45 @@
         WindowStartupLocation="CenterScreen"
         Style="{StaticResource ChromeWindow}">
 
-  <!-- The title-bar menu is a resource handed to the shared title bar through Chrome.TitleContent in
-       the constructor - attached-property element syntax for it trips MC3089 (see NetControl). -->
-  <Window.Resources>
-    <Menu x:Key="TitleMenu" Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
+  <DockPanel>
+
+    <!-- ============================== Status bar ============================== -->
+    <Border DockPanel.Dock="Bottom"
+            Background="{DynamicResource bg-1}"
+            BorderBrush="{DynamicResource line}"
+            BorderThickness="0,1,0,0"
+            Padding="10,5">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Style="{StaticResource Muted}" Text="{Binding Status}"
+                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" ToolTip="The open site. System > Open system to switch." />
+          <TextBlock Style="{StaticResource Muted}" Text=" / " />
+          <TextBlock Text="{Binding SystemName}" FontWeight="SemiBold" ToolTip="{Binding BackupDefaultsText}" />
+          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
+          <TextBlock Style="{StaticResource Muted}" Text="{Binding ScheduleText}" />
+          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
+          <TextBlock Style="{StaticResource Muted}" Text="{Binding ArchiveRoot}" ToolTip="Archive folder" />
+          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
+          <TextBlock Style="{StaticResource Muted}" Text="{Binding Version}" />
+          <TextBlock Margin="10,0,0,0" Foreground="{DynamicResource accent-text}" Cursor="Hand"
+                     Text="{Binding UpdateStatus}"
+                     Visibility="{Binding UpdateStatus, Converter={StaticResource NotNullToVisible}}"
+                     MouseLeftButtonUp="OnUpdateStatusClicked" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ============================== Menu bar ============================== -->
+    <!-- An ordinary child of the window, on a row of its own under the title bar. Through 0.5.0 it
+         was a resource put into the title bar through Chrome.TitleContent and a TemplatedParent
+         binding in ChromeWindow, and it never rendered there (0.5.0 screenshot: an empty gap
+         between the mark and the title). Keep it in the tree, not in Resources. -->
+    <Menu DockPanel.Dock="Top" Padding="6,2">
       <MenuItem Header="_Site">
         <!-- One line per site on this PC; each carries its own command (SiteChoiceViewModel). -->
         <MenuItem Header="_Switch to" ItemsSource="{Binding SiteChoices}">
@@ -135,40 +170,6 @@
         <MenuItem Header="_About RobControl" Click="OnAbout" />
       </MenuItem>
     </Menu>
-  </Window.Resources>
-
-  <DockPanel>
-
-    <!-- ============================== Status bar ============================== -->
-    <Border DockPanel.Dock="Bottom"
-            Background="{DynamicResource bg-1}"
-            BorderBrush="{DynamicResource line}"
-            BorderThickness="0,1,0,0"
-            Padding="10,5">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Style="{StaticResource Muted}" Text="{Binding Status}"
-                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" />
-        <StackPanel Grid.Column="1" Orientation="Horizontal">
-          <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" ToolTip="The open site. System > Open system to switch." />
-          <TextBlock Style="{StaticResource Muted}" Text=" / " />
-          <TextBlock Text="{Binding SystemName}" FontWeight="SemiBold" ToolTip="{Binding BackupDefaultsText}" />
-          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
-          <TextBlock Style="{StaticResource Muted}" Text="{Binding ScheduleText}" />
-          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
-          <TextBlock Style="{StaticResource Muted}" Text="{Binding ArchiveRoot}" ToolTip="Archive folder" />
-          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
-          <TextBlock Style="{StaticResource Muted}" Text="{Binding Version}" />
-          <TextBlock Margin="10,0,0,0" Foreground="{DynamicResource accent-text}" Cursor="Hand"
-                     Text="{Binding UpdateStatus}"
-                     Visibility="{Binding UpdateStatus, Converter={StaticResource NotNullToVisible}}"
-                     MouseLeftButtonUp="OnUpdateStatusClicked" />
-        </StackPanel>
-      </Grid>
-    </Border>
 
     <!-- ============================== Toolbar ============================== -->
     <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="10,2,10,0" Padding="10,6">

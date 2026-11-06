@@ -29,6 +29,9 @@ already read, and a `CWD` into a folder name during a backup. Still read-only.
   position of the selected robot, from its diagnostic pages. Read now, or every few seconds (5 s at
   the fastest); never while that robot is being backed up, probed or recorded.
 - `--system` on the command line opens a system without the picker, next to `--site`.
+- **The menus are back.** Site, System, Robots, Backup, View and Help now sit in a menu bar of
+  their own under the title bar. Through 0.5.0 they were meant to appear inside the title bar, but
+  they never showed up there, so none of the menu-only commands could be reached.
 
 ## 0.5.0 - backup health, verify, bundles and exports
 

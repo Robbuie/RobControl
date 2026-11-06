@@ -3,9 +3,9 @@ using System.Windows;
 namespace RobControl.App.Appearance;
 
 /// <summary>
-/// One attached property for the shared title bar: something to put in it beside the title. The
-/// main window puts its menu there, File Manager-style, so the row that drags the window is also
-/// the row the menus live in; a dialog puts nothing there and gets a plain title.
+/// One attached property for the shared title bar: something to put in it beside the title. Kept
+/// for parity with NetControl; RobControl's main window no longer uses it - its menu has its own
+/// row under the title bar (0.6.0), and every window gets a plain title.
 /// </summary>
 public static class Chrome
 {

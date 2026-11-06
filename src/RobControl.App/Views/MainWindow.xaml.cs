@@ -29,7 +29,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Chrome.SetTitleContent(this, Resources["TitleMenu"]);
         DataContextChanged += OnDataContextChanged;
         KeyDown += (_, e) =>
         {
