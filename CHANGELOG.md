@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.7.1 - Live tab against a real controller
+
+The Live tab was checked against a real R-30iB (V8.30) web server for the first time, and most of it
+did not match what was assumed. Still GET only; one new page is read (`SFTYSIG.DG`, the stop signals).
+
+- **I/O loads.** The controller writes `DIN`, `DOUT`, `GIN`, `GOUT` and `FLG`, not `DI`/`DO`/`GI`/`GO`/`F`,
+  and wraps the page in HTML - so nothing was recognised. Every I/O type on the page is now listed
+  with its comment and shown under the pendant's names: digital, group, analog, robot, UOP, SOP,
+  weld, flags, markers, and **safe I/O** (`CSI`/`CSO` for CIP Safety, `SPI`/`SPO`, `SSI`/`SSO`, `SIR`,
+  `NSI`/`NSO`...) when the controller lists it. **Stop signals** (E-stops, fence, deadman, hand
+  broken) are listed with them. Search by point or comment, pick a type, **Only ON**, **Named only**.
+- The same fix reaches **Trends**: I/O signals now record, and **Browse... > Read from robot** lists I/O.
+  Safe I/O can be trended like any other point - read only.
+- **Program** is now tables: every task with its status, where it is (routine, program, line) and
+  its call stack; every program loaded with type, comment, lines, size, modified time, source and
+  write protection (hover a row for every field). Search, and **Running only**.
+- **Position** is now tables: joints, and X/Y/Z/W/P/R in the current user frame and in world side by
+  side, with the frame, tool and configuration above.
+- **Pages** shows the text of the page you pick, for anything the tables do not cover.
+- **"Could not reach the web server ... forcibly closed by the remote host":** RobControl now asks
+  for one page per connection with the headers a browser sends, asks again once if the controller
+  drops the connection, and then tries a plain HTTP/1.0 request. If all three are dropped the
+  message says so - the robot answered, so it is not a network fault - and what to check. A robot
+  that does not answer at all is no longer asked for the remaining pages one timeout at a time.
+
 ## 0.7.0 - signal browser on the Trends tab
 
 Nothing new is sent to a robot: Read from robot is one GET each of `NUMREG.VA` and `IOSTATE.DG`,

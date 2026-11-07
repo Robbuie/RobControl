@@ -1,0 +1,72 @@
+<html><head>
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title> R1 (robot) Homepage </title>
+
+<script language="javascript">
+<!--
+var openSetupWin = [null, null, null, null];
+var appConf = [{page: "vsfrmn.stm", width: 1070, height: 850}];
+function genlink_url(menuhref) { window.location.href = '/softpart/genlink?' + menuhref; }
+//-->
+</script>
+</head>
+<body bgcolor="#FFF9e3">
+
+<table width="100%" border="2">
+  <tbody><tr>
+  <td align="center" valign="middle"><strong><font color="#bc1e33" size="6">
+                WEB SERVER</font><br>
+        <font color="black" size="3">
+                Hostname: R1<br>
+                Robot No: 0000000   <br>
+                File Name: /MD/CURPOS.DG<br>
+                Date:  26/11/06
+                Time: 17:01:44
+        </font></strong></td>
+  </tr>
+</tbody></table>
+<pre>F Number: 0000000   
+VERSION : REPAIRTOOL+
+$VERSION: V8.30413       3/6/2023
+DATE:     06-NOV-26 17:01 
+
+CURRENT ROBOT POSITION::
+Group #:  1
+ 
+CURRENT JOINT POSITION:
+Joint   1:     69.05
+Joint   2:    -45.48
+Joint   3:     -7.56
+Joint   4:   -108.96
+Joint   5:    -22.22
+Joint   6:   -159.64
+EXTAXS: 1:  -3500.02
+
+
+Frame #:  0  Tool #:  1
+CURRENT USER FRAME POSITION:
+CFG: N U T, 0, 0, 0
+X:    199.99
+Y:  -2637.74
+Z:    399.87
+W:   -180.00
+P:       .00
+R:     90.00
+EXTAXS: 1:  -3500.02
+
+
+Tool #:  1
+CURRENT WORLD POSITION:
+CFG: N U T, 0, 0, 0
+X:    199.99
+Y:  -2637.74
+Z:    399.87
+W:   -180.00
+P:       .00
+R:     90.00
+EXTAXS: 1:  -3500.02</pre>
+
+
+
+</body></html>

@@ -1,0 +1,51 @@
+<html><head>
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title> R1 (robot) Homepage </title>
+
+<script language="javascript">
+<!--
+var openSetupWin = [null, null, null, null];
+var appConf = [{page: "vsfrmn.stm", width: 1070, height: 850}];
+function genlink_url(menuhref) { window.location.href = '/softpart/genlink?' + menuhref; }
+//-->
+</script>
+</head>
+<body bgcolor="#FFF9e3">
+
+<table width="100%" border="2">
+  <tbody><tr>
+  <td align="center" valign="middle"><strong><font color="#bc1e33" size="6">
+                WEB SERVER</font><br>
+        <font color="black" size="3">
+                Hostname: R1<br>
+                Robot No: 0000000   <br>
+                File Name: /MD/SFTYSIG.DG<br>
+                Date:  26/11/06
+                Time: 17:01:44
+        </font></strong></td>
+  </tr>
+</tbody></table>
+<pre>F Number: 0000000   
+VERSION : REPAIRTOOL+
+$VERSION: V8.30413       3/6/2023
+DATE:     06-NOV-26 17:01 
+
+STOP SIGNALS::
+
+External ESTOP   FALSE
+SOP Estop        FALSE
+TP ESTOP         FALSE
+Hand Broken      TRUE 
+OverTravel       FALSE
+Low Air Alarm    FALSE
+Fence Open       FALSE
+Belt Broken      FALSE
+TP Enable        FALSE
+TP Deadman       FALSE
+SVOFF Detect     FALSE
+Non Teacher Enb  FALSE</pre>
+
+
+
+</body></html>

@@ -15,7 +15,7 @@ settings to make itself work - when something is locked, it says where on the pe
 | | |
 |---|---|
 | **Back up** | FTP copy of the devices you tick each time - `md:`, `fr:`, `fra:`, a memory card or USB stick - and the folders inside them, for one robot or the whole fleet, a few at a time. Plain dated folders you can open in Explorer, a `manifest.json` with the SHA-256 of every file, and the FTP transcript. Anything cut short is marked `_INCOMPLETE` - never a folder that looks like a good backup. |
-| **Live** | What the selected robot says right now, from its own web pages: active alarms, recent alarm history, I/O, program state and current position. Read once or every few seconds; reads only. |
+| **Live** | What the selected robot says right now, from its own web pages: active alarms, recent alarm history, every I/O point (safe I/O and stop signals included), tasks and programs, and current position - as tables you can search. Read once or every few seconds; reads only. |
 | **Probe** | What the controller is - generation, software version, application, arm, F-number - and which ways in are open: FTP, diagnostic files, KCL - and whether its clock agrees with this PC's. When something is locked it says where on the pendant to change it, and does not change it itself. |
 | **Compare** | Any two backups of a robot: which files changed, were added or removed, and the line diff of the ASCII listings (`.LS`, `.VA`). |
 | **Schedule** | Fleet backups every 4/8/12/24 hours while the app is open. A robot whose scheduled backup fails or comes back partial is tried again a few minutes later. |
@@ -157,12 +157,34 @@ controller's own image backup (boot monitor, or Auto Backup to `FRA:` or a memor
 ## Live
 
 The **Live** tab reads the selected robot's own diagnostic pages from its web server: active alarms
-(`ERRACT.LS`), the newest 50 lines of alarm history (`ERRALL.LS`), I/O (`IOSTATE.DG`), program
-state (`PRGSTATE.DG`) and current position (`CURPOS.DG`). **Read now** reads them once; **Every**
-reads again on a timer, never faster than every 5 seconds, while that robot stays selected. It
-skips a robot that is being backed up, probed or recorded, so it never opens a second connection.
+(`ERRACT.LS`), the newest 50 lines of alarm history (`ERRALL.LS`), program state (`PRGSTATE.DG`),
+current position (`CURPOS.DG`), stop signals (`SFTYSIG.DG`) and I/O (`IOSTATE.DG`). **Read now**
+reads them once; **Every** reads again on a timer, never faster than every 5 seconds, while that
+robot stays selected. It skips a robot that is being backed up, probed or recorded, so it never
+opens a second connection.
+
+- **I/O** lists every point the controller reports, under the pendant's names (`DI[1]`, `GO[3]`,
+  `F[12]`), with its comment: digital, group, analog, robot, UOP, SOP, weld, flags, markers, and
+  **safe I/O** - `CSI`/`CSO` (CIP Safety), `SPI`/`SPO`, `SSI`/`SSO`, `SIR` and the rest - when the
+  controller lists it on that page. The stop signals (E-stops, fence, deadman, hand broken) are at
+  the top. **Search** matches the point or its comment (`DO[`, `clamp`, `estop`); pick one type,
+  tick **Only ON** to see what is lit, or **Named only** to hide unused points. Rows copy with Ctrl+C.
+- **Program** lists the tasks - status, where each one is (routine, program, line) and its call
+  stack - and every program loaded, with its type, comment, lines, size, last change, source file and
+  write protection; hover a program for every field the controller gave. **Search** covers all of
+  it; **Running only** narrows to what is running.
+- **Position** shows each group's joints, and X/Y/Z/W/P/R in the current user frame and in world
+  side by side, with the frame, tool and configuration above.
+- **Pages** lists what each page returned; pick one to read its text.
+
 A page a controller does not serve is shown as *not available* under **Pages**; if the diagnostic
 files are locked, unlock them under **Setup > Host Comm > HTTP** on the pendant.
+
+If Live says the web server *accepted the connection and then dropped it*, the robot is on the
+network - RobControl has already asked three ways. Open `http://<robot address>/MD/SUMMARY.DG` in a
+browser on the same PC: if the browser shows it, a firewall or endpoint-security product is likely
+blocking `RobControl.exe` on the robot network; if the browser fails too, look at
+**Setup > Host Comm > HTTP** on the pendant.
 
 ## Trends
 

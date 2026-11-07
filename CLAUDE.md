@@ -301,7 +301,42 @@ reason written down, not a feature request.
 ## Controller gotchas
 
 Confirmed facts only, each with the controller generation and software version it was seen on.
-Empty until Phase 0 has been in front of a robot.
+
+### R-30iB, V8.30 RepairTool+ (read in a browser, 6 Nov 2026)
+
+Excerpts in `tests/Fixtures/excerpt-r30ib-v830-repairtool/`.
+
+- **Diagnostic pages come wrapped in HTML.** `/MD/IOSTATE.DG` is an HTML page (title, a script
+  block, a header table naming host, robot number, file and date) with the file itself in one
+  `<pre>`. `DiagnosticPage.Text` takes it out; everything that reads `/MD/` over HTTP must go
+  through it. Over FTP the same file is plain text.
+- **IOSTATE.DG spells types `DIN`, `DOUT`, `GIN`, `GOUT`, `FLG`** (and `UI`, `UO`, `SI`, `SO`,
+  `RI`, `RO` as on the pendant), value right-aligned (`DIN[   2]  ON  *Hold`, `GIN[   5]    1  Changer
+  Cnt`), comment after the value. Flags are printed **two per line**
+  (`FLG[   1] OFF  Continue                  FLG[ 513] OFF`). On that controller: 2032 DIN, 2032 DOUT,
+  1024 FLG; ~130 KB; no safe I/O listed (no DCS safe I/O / CIP Safety on it). `IoStateParser`
+  normalises to the pendant names, so trend keys stay `DI[1]`.
+- **The web server answered a browser** while RobControl 0.7.0's `HttpClient` got "An existing
+  connection was forcibly closed by the remote host" from the same PC. Cause not pinned down (no
+  packet capture). 0.7.1 sends `Connection: close` and `Accept`, retries once, then falls back to a
+  hand-written HTTP/1.0 GET (`RawHttpGet`). **Confirm on the next visit which of the three answers.**
+- **FTP on 21 did not answer** on the same robot (backup: "Nothing answered ... within 5 s") while
+  ping and HTTP did - FTP server disabled, or filtered. Not yet looked into.
+- `PRGSTATE.DG`: `TASK STATES:` then per task `9     SWAXTSK1 RUNNING @ 874 in PROCESSAMR of SWAXTCMN`
+  or `2     DGMONFRC status = ABORTED`, then `******  History Data  ******` with
+  `Routine depth: n  Routine: X` / `Line: n  Program: Y  Type: PC` pairs (deepest first). Then
+  `PROGRAM STATES:`, per program `NAME  TYPE` (TP, PC, VR, MACRO) and `Key: value` lines - Task,
+  Size, Lines, Comment, Program size, Created time, Last modified (`06-NOV-26 14:51`; `00-0-80 00:00`
+  when unset), Source file, Protection, Priority, Checksum...
+- `CURPOS.DG`: `Group #:  1`, `CURRENT JOINT POSITION:` with `Joint   1:     69.05` and
+  `EXTAXS: 1:  -3500.02`; `Frame #:  0  Tool #:  1` then `CURRENT USER FRAME POSITION:` with
+  `CFG: N U T, 0, 0, 0` and `X:` ... `R:` (`P:       .00` - no leading zero); `Tool #:  1` then
+  `CURRENT WORLD POSITION:`.
+- `SFTYSIG.DG` ("Current Stop Signals"): `STOP SIGNALS::` then `External ESTOP   FALSE`,
+  `Hand Broken      TRUE`, `Fence Open       FALSE`, `TP Deadman       FALSE`...
+- The home page links the pages it has; `/MD/INDEX_ER.HTM` lists every diagnostic file on `MD:`
+  (on that robot: ACCNTG, AXIS, DCSCHGD1-3, DCSDIFF, DCSVRFY, EIPLOG, ETHERNET, IOCONFIG, SFTYSIG,
+  TASKLIST, VERSION and more). `/MD/` itself is 404.
 
 ### Assumed, not yet confirmed - Phase 0 checks each of these
 
@@ -317,8 +352,10 @@ exactly what a real controller does instead.
   real `FR:`/`FRA:` backup** and look at the transcript.
 - Device names: `MD:`, `FR:`, `FRA:` (Auto Backup), `MC:`, `UD1:`, `UT1:`, `RD:`. A device that is
   not there (no card, no stick) refuses the `CWD`; that device fails, the rest arrive.
-- The Live pages: `ERRACT.LS` (active alarms), `ERRALL.LS`, `PRGSTATE.DG`, `CURPOS.DG`, `IOSTATE.DG`
-  at `/MD/<name>`; 404 for one a controller does not make. `LiveReader` keeps them verbatim and only
+- The Live pages exist at `/MD/<name>` on V8.30 (above); 404 for one a controller does not make.
+  Whether **safe I/O (CSI/CSO, SPI/SPO...) appears in IOSTATE.DG** on a robot that has DCS safe
+  I/O or CIP Safety is not known - `IoStateParser` takes any `TYPE[n] value`, so it will show if it
+  is there. Check on the first CIP Safety robot; if it is not, find the page that has it. `LiveReader` keeps them verbatim and only
   the alarm and I/O parsers (which search) read into them. The probe tool now fetches `ERRACT.LS` too.
 - `CWD md:` selects the device; `NLST` lists bare names (the sim can also prefix them with `md:` -
   `SimProfile.NlstWithDevicePrefix` - and `ArchiveNames.StripDevice` copes either way).
@@ -338,8 +375,8 @@ exactly what a real controller does instead.
   `<XMP>` (or `<PRE>`); a locked resource answers 401 or 403. KCL errors arrive inside a 200.
 - `SHOW VAR` puts the value after the last `=` on the line.
 - `GET /MD/NUMREG.VA` generates the register listing on request, with lines like
-  `[2] = 1287  'Weld count'`; `GET /MD/IOSTATE.DG` lists I/O as `DI[  1] ON ...` (or in an HTML
-  table - the parser tolerates markup between name and value). Both parsers search rather than parse.
+  `[2] = 1287  'Weld count'` (and, like every `/MD/` page, probably inside HTML - `RegisterFileParser`
+  searches, so it copes either way). Confirm.
 - Generating those two files every few seconds is light enough for a running controller. **This one
   matters most** - watch the controller's load (and the pendant) the first time a robot is recorded
   at 2 s, and raise `MinimumInterval` if it is not.

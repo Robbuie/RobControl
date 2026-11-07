@@ -14,9 +14,13 @@ namespace RobControl.Core.Live;
 /// through <see cref="ControllerWebClient.GetDiagnosticFileAsync"/>, the same path trending and the
 /// probe use. One event row per read, naming the robot and what came back - not one per page.</para>
 ///
-/// <para><b>The page names are FANUC's as documented, not yet seen on our controllers</b> (CLAUDE.md,
-/// Phase 0). A page a controller does not have is shown as "not available", never an error, and
-/// every page is kept verbatim so the person can read what it really says.</para>
+/// <para><b>The pages are wrapped in HTML</b> by the controller's web server (seen on an R-30iB, V8.30,
+/// November 2026); <see cref="DiagnosticPage.Text"/> takes the file back out of its <c>&lt;pre&gt;</c>
+/// and that text is what is kept and parsed. A page a controller does not have is shown as "not
+/// available", never an error, and every page is kept so the person can read what it really says.</para>
+///
+/// <para>If the web server cannot be reached at all, the remaining pages are not asked for - each
+/// would wait out the same timeout against the same silent address.</para>
 /// </summary>
 public static class LiveReader
 {
@@ -33,8 +37,12 @@ public static class LiveReader
         ("Alarm history", "ERRALL.LS"),
         ("Program state", "PRGSTATE.DG"),
         ("Current position", "CURPOS.DG"),
+        ("Stop signals", SafetyFile),
         ("I/O", RobotSampler.IoFile),
     ];
+
+    /// <summary>"Current Stop Signals" on the controller's home page.</summary>
+    public const string SafetyFile = "SFTYSIG.DG";
 
     public static async Task<LiveSnapshot> ReadAsync(
         Robot robot, ControllerWebClient web, IEventSink? events = null, CancellationToken cancellationToken = default)
@@ -43,18 +51,37 @@ public static class LiveReader
         ArgumentNullException.ThrowIfNull(web);
 
         var files = new List<LiveFile>();
+        string? unreachable = null;
         foreach ((string title, string file) in Pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            files.Add(await ReadOneAsync(web, title, file, cancellationToken).ConfigureAwait(false));
+            if (unreachable is not null)
+            {
+                files.Add(new LiveFile(title, file, LiveFileStatus.Failed, string.Empty, $"Not asked: {unreachable} did not answer."));
+                continue;
+            }
+
+            LiveFile read = await ReadOneAsync(web, title, file, cancellationToken).ConfigureAwait(false);
+            files.Add(read);
+            if (read.Status == LiveFileStatus.Failed && read.Unreachable)
+            {
+                unreachable = file;
+            }
         }
 
         IReadOnlyList<AlarmEntry> active = Alarms(robot, files, "ERRACT.LS", int.MaxValue);
         IReadOnlyList<AlarmEntry> recent = Alarms(robot, files, "ERRALL.LS", RecentAlarmCount);
-        LiveFile? io = files.FirstOrDefault(f => f.FileName == RobotSampler.IoFile);
-        IReadOnlyDictionary<string, double> points = io is { IsOk: true } ? IoStateParser.Parse(io.Text) : new Dictionary<string, double>();
+        string? Ok(string name) => files.FirstOrDefault(f => f.FileName == name) is { IsOk: true } f ? f.Text : null;
 
-        var snapshot = new LiveSnapshot(DateTimeOffset.UtcNow, files, active, recent, points);
+        string? io = Ok(RobotSampler.IoFile);
+        IReadOnlyDictionary<string, double> values = io is null ? new Dictionary<string, double>() : IoStateParser.Parse(io);
+        var snapshot = new LiveSnapshot(DateTimeOffset.UtcNow, files, active, recent, values)
+        {
+            IoPoints = io is null ? [] : IoStateParser.Points(io),
+            SafetySignals = Ok(SafetyFile) is { } safety ? SafetySignalParser.Parse(safety) : [],
+            Programs = Ok("PRGSTATE.DG") is { } programs ? ProgramStateParser.Parse(programs) : ProgramStateReport.Empty,
+            Position = Ok("CURPOS.DG") is { } position ? PositionParser.Parse(position) : [],
+        };
         string detail = string.Join('\n', files.Select(f => $"GET /MD/{f.FileName}: {f.Status}{(f.Message is null ? string.Empty : " - " + f.Message)}"));
         if (files.All(f => f.Status is LiveFileStatus.Failed or LiveFileStatus.Locked))
         {
@@ -79,8 +106,8 @@ public static class LiveReader
             }
 
             return exchange.IsSuccess
-                ? new LiveFile(title, file, LiveFileStatus.Ok, exchange.Text, null)
-                : new LiveFile(title, file, LiveFileStatus.Failed, exchange.Text, $"HTTP {exchange.StatusCode}");
+                ? new LiveFile(title, file, LiveFileStatus.Ok, DiagnosticPage.Text(exchange.Text), null)
+                : new LiveFile(title, file, LiveFileStatus.Failed, DiagnosticPage.Text(exchange.Text), $"HTTP {exchange.StatusCode}");
         }
         catch (HttpResourceLockedException ex)
         {
@@ -89,7 +116,8 @@ public static class LiveReader
         }
         catch (ControllerHttpException ex)
         {
-            return new LiveFile(title, file, LiveFileStatus.Failed, string.Empty, ex.Message);
+            string message = ex.Remediation is { Length: > 0 } fix ? $"{ex.Message} {fix}" : ex.Message;
+            return new LiveFile(title, file, LiveFileStatus.Failed, string.Empty, message) { Unreachable = ex.StatusCode is null && ex.InnerException is not TaskCanceledException };
         }
     }
 
@@ -101,7 +129,7 @@ public static class LiveReader
             return [];
         }
 
-        string[] lines = file.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        string[] lines = file.Text.Split('\n');
         return [.. AlarmLogParser.Parse(robot.Name, lines).Take(max)];
     }
 }

@@ -25,10 +25,15 @@ public sealed class ControllerWebClient : IDisposable
     private readonly bool _ownsHttp;
     private readonly Uri _base;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly IPAddress _address;
+
+    /// <summary>How long to wait before asking again after the controller dropped a connection.</summary>
+    internal static TimeSpan RetryPause { get; set; } = TimeSpan.FromMilliseconds(750);
 
     public ControllerWebClient(IPAddress address, int port = 80, HttpClient? http = null, TimeSpan? timeout = null)
     {
         UnicastTarget.Ensure(address);
+        _address = address;
         _base = new UriBuilder(Uri.UriSchemeHttp, address.ToString(), port).Uri;
         _ownsHttp = http is null;
         _http = http ?? new HttpClient(new SocketsHttpHandler
@@ -88,48 +93,152 @@ public sealed class ControllerWebClient : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var watch = Stopwatch.StartNew();
-            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            byte[] body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-            var exchange = new HttpExchange(path, (int)response.StatusCode, response.Content.Headers.ContentType?.ToString(), body, watch.Elapsed)
+            HttpExchange exchange;
+            try
             {
-                ServerDate = response.Headers.Date,
-                ReceivedUtc = DateTimeOffset.UtcNow,
-            };
+                exchange = await SendWithRetryAsync(uri, path, cancellationToken).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex) when (ex.InnerException is SocketException or IOException)
+            {
+                throw Unreachable(path, ex);
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new ControllerHttpException($"The web server at {_base} did not answer {path} in time.", null, ex)
+                {
+                    Remediation = "The controller may be busy generating a large file (IOSTATE.DG can take several seconds). "
+                        + "Try again; if it keeps happening, raise the timeout.",
+                };
+            }
 
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            if (exchange.StatusCode is 401 or 403)
             {
                 throw new HttpResourceLockedException(
                     resource,
                     exchange.StatusCode,
-                    $"The controller refused {path} ({exchange.StatusCode} {response.ReasonPhrase}): "
+                    $"The controller refused {path} ({exchange.StatusCode}): "
                         + $"the {HttpResourceLockedException.Name(resource)} resource is locked.");
             }
 
             return exchange;
-        }
-        catch (HttpRequestException ex) when (ex.InnerException is SocketException or IOException)
-        {
-            throw new ControllerHttpException($"Could not reach the web server at {_base}: {ex.InnerException!.Message}", null, ex)
-            {
-                Remediation = "Check the robot is powered and on this network, and that its web server is enabled "
-                    + "(Setup > Host Comm > Servers).",
-            };
-        }
-        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new ControllerHttpException($"The web server at {_base} did not answer {path} in time.", null, ex)
-            {
-                Remediation = "The controller may be busy generating a large file. Try again; if it keeps "
-                    + "happening, raise the timeout.",
-            };
         }
         finally
         {
             _gate.Release();
         }
     }
+
+    /// <summary>
+    /// One GET, tried up to three ways when the controller drops the connection: the request as
+    /// normal, the same again after a pause, then by hand as HTTP/1.0 (<see cref="RawHttpGet"/>).
+    /// A connection that is refused or never answers is not retried - nothing is listening, and
+    /// asking again only makes the person wait longer.
+    /// </summary>
+    private async Task<HttpExchange> SendWithRetryAsync(Uri uri, string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await SendOnceAsync(uri, path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException first) when (_ownsHttp && IsDropped(first))
+        {
+            TraceDrop(path, "first try", first);
+        }
+
+        await Task.Delay(RetryPause, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await SendOnceAsync(uri, path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException second) when (IsDropped(second))
+        {
+            TraceDrop(path, "second try", second);
+            try
+            {
+                return await RawHttpGet.GetAsync(_address, _base.Port, path, _http.Timeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception raw) when (raw is IOException or SocketException
+                || (raw is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+            {
+                throw Dropped(path, second, raw);
+            }
+        }
+    }
+
+    private async Task<HttpExchange> SendOnceAsync(Uri uri, string path, CancellationToken cancellationToken)
+    {
+        var watch = Stopwatch.StartNew();
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+
+        // One request per connection, and say what is acceptable. A controller's web server is small
+        // and old: a kept-alive connection it has already given up on is the usual way to be reset,
+        // and a request with no Accept header is not what a browser - the client it was tested
+        // with - ever sends.
+        request.Headers.ConnectionClose = true;
+        request.Headers.Accept.ParseAdd("text/html, text/plain, */*");
+
+        using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        byte[] body = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        return new HttpExchange(path, (int)response.StatusCode, response.Content.Headers.ContentType?.ToString(), body, watch.Elapsed)
+        {
+            ServerDate = response.Headers.Date,
+            ReceivedUtc = DateTimeOffset.UtcNow,
+        };
+    }
+
+    /// <summary>
+    /// The server took the connection and then dropped it - a reset, or a reply cut short or
+    /// malformed. Distinct from refused or timed out, which mean nothing answered at all.
+    /// </summary>
+    internal static bool IsDropped(HttpRequestException ex)
+    {
+        if (ex.HttpRequestError is HttpRequestError.ResponseEnded or HttpRequestError.InvalidResponse)
+        {
+            return true;
+        }
+
+        for (Exception? inner = ex.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is SocketException { SocketErrorCode: SocketError.ConnectionReset or SocketError.ConnectionAborted or SocketError.Shutdown })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private ControllerHttpException Unreachable(string path, HttpRequestException ex)
+    {
+        Exception cause = ex.InnerException ?? ex;
+        if (IsDropped(ex))
+        {
+            return Dropped(path, ex, null);
+        }
+
+        return new ControllerHttpException($"Could not reach the web server at {_base}: {cause.Message}", null, ex)
+        {
+            Remediation = "Check the robot is powered and on this network, and that its web server is enabled "
+                + "(Setup > Host Comm > Servers).",
+        };
+    }
+
+    private ControllerHttpException Dropped(string path, HttpRequestException ex, Exception? raw)
+    {
+        string cause = (ex.InnerException ?? ex).Message;
+        string rawNote = raw is null ? string.Empty : $" A plain HTTP/1.0 request was tried as well and failed too ({raw.Message}).";
+        return new ControllerHttpException(
+            $"The web server at {_base} accepted the connection for {path} and then dropped it: {cause}.{rawNote}", null, ex)
+        {
+            Remediation = $"Something answered on port {_base.Port}, so the robot is on the network. Open {_base}MD/SUMMARY.DG "
+                + "in a browser on this PC: if that works and RobControl still cannot, a firewall or endpoint-security "
+                + "product on this PC may be blocking RobControl.exe - allow it for the robot network. If the browser "
+                + "fails too, the controller's web server is refusing this PC: check Setup > Host Comm > HTTP on the pendant.",
+        };
+    }
+
+    private void TraceDrop(string path, string attempt, HttpRequestException ex) =>
+        Trace.WriteLine($"[http] {_base}{path.TrimStart('/')}: connection dropped on the {attempt} ({ex.HttpRequestError}): {(ex.InnerException ?? ex).Message}");
 
     /// <summary>
     /// Escapes only what a URL path cannot carry. Spaces become %20; <c>$</c>, <c>[</c>, <c>]</c> and

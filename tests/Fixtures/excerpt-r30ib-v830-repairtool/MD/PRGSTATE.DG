@@ -1,0 +1,161 @@
+<html><head>
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title> R1 (robot) Homepage </title>
+
+<script language="javascript">
+<!--
+var openSetupWin = [null, null, null, null];
+var appConf = [{page: "vsfrmn.stm", width: 1070, height: 850}];
+function genlink_url(menuhref) { window.location.href = '/softpart/genlink?' + menuhref; }
+//-->
+</script>
+</head>
+<body bgcolor="#FFF9e3">
+
+<table width="100%" border="2">
+  <tbody><tr>
+  <td align="center" valign="middle"><strong><font color="#bc1e33" size="6">
+                WEB SERVER</font><br>
+        <font color="black" size="3">
+                Hostname: R1<br>
+                Robot No: 0000000   <br>
+                File Name: /MD/PRGSTATE.DG<br>
+                Date:  26/11/06
+                Time: 17:01:44
+        </font></strong></td>
+  </tr>
+</tbody></table>
+<pre>F Number: 0000000   
+VERSION : REPAIRTOOL+
+$VERSION: V8.30413       3/6/2023
+DATE:     06-NOV-26 17:01 
+
+TASK STATES:
+
+1      DGSHELL RUNNING @ 776 in DGSHELL of DGSHELL
+
+******  History Data  ******
+Routine depth: 0  Routine: DGSHELL                             
+Line:   775       Program: DGSHELL                               Type: PC    
+
+2     DGMONFRC status = ABORTED
+
+******  History Data  ******
+Routine depth: 0  Routine: DGMONFRC                            
+Line:    87       Program: DGMONFRC                              Type: PC    
+
+9     SWAXTSK1 RUNNING @ 874 in PROCESSAMR of SWAXTCMN
+
+******  History Data  ******
+Routine depth: 1  Routine: PROCESSAMR                          
+Line:   874       Program: SWAXTCMN                              Type: PC    
+
+Routine depth: 0  Routine: SWAXTSK1                            
+Line:   172       Program: SWAXTSK1                              Type: PC    
+
+16     STYLE110 status = ABORTED
+
+******  History Data  ******
+Routine depth: 0  Routine: STYLE110                            
+Line:     1       Program: STYLE110                              Type: TP    
+
+
+PROGRAM STATES:
+-BCKED2-      TP    
+Task: no   
+Size:  132  
+Lines:    0  
+Program name:    -BCKED2-  
+Comment:         
+Program size:    132 bytes
+Created time:    04-NOV-26 08:33 
+Last modified:   04-NOV-26 08:33 
+Allocated size:  376 bytes
+Protection:      OFF
+Stack size:      0 words
+Priority:        50
+Time slice:      0
+Busy lamp:       0
+Ignore abort:    0
+Ignore pause:    0
+
+BICSETUP      VR    
+Task: no   
+Size:    0  
+Vars:     1  
+Types:     0  
+Program name:    BICSETUP  
+Comment:         
+Program size:    0 bytes
+Created time:    00-0-80 00:00   
+Last modified:   00-0-80 00:00   
+Allocated size:  244 bytes
+Protection:      OFF
+Stack size:      0 words
+Priority:        0
+Time slice:      0
+Busy lamp:       0
+Ignore abort:    0
+Ignore pause:    0
+
+CHANGE        TP    
+Task: no   
+Size: 1805  
+Lines:   57  
+Program name:    CHANGE  
+Comment:         Paper Attch
+Program size:    1805 bytes
+Created time:    15-NOV-23 12:46 
+Last modified:   06-NOV-26 14:51 
+Allocated size:  2233 bytes
+Protection:      OFF
+Stack size:      0 words
+Priority:        50
+Time slice:      0
+Busy lamp:       0
+Ignore abort:    0
+Ignore pause:    0
+
+CLR_TRAN      MACRO 
+Task: no   
+Size:  474  
+Lines:    8  
+Program name:    CLR_TRAN  
+Comment:         Clr of transfer
+Program size:    474 bytes
+Created time:    06-JUL-93 15:34 
+Last modified:   11-MAR-09 12:58 
+Allocated size:  822 bytes
+Protection:      ON
+Stack size:      0 words
+Priority:        50
+Time slice:      0
+Busy lamp:       0
+Ignore abort:    0
+Ignore pause:    0
+
+DG3MERROR     PC    
+Task: yes  
+Size: 4739  
+Vars:     0  
+Types:     0  
+Program name:    DG3MERROR  
+Comment:         Error Handle
+Program size:    4739 bytes
+Created time:    06-NOV-26 14:25 
+Last modified:   06-NOV-26 14:25 
+Source file:     TD:\DG3MERROR.PC
+Allocated size:  6046 bytes
+Protection:      OFF
+Stack size:      2200 words
+Priority:        10
+Time slice:      256
+Busy lamp:       1
+Ignore abort:    3
+Ignore pause:    7
+Checksum:        8454</pre>
+
+
+
+</body></html>

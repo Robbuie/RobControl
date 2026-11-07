@@ -27,7 +27,7 @@ public sealed class LiveReaderTests : IDisposable
         Assert.Equal(1.0, snapshot.Io["DI[1]"]);
         Assert.Equal(LiveFileStatus.NotAvailable, snapshot.File("CURPOS.DG")!.Status);
         Assert.Equal(LiveFileStatus.Ok, snapshot.File("ERRALL.LS")!.Status);
-        Assert.Contains("3 of 5 pages read", snapshot.Summary, StringComparison.Ordinal);
+        Assert.Contains("3 of 6 pages read", snapshot.Summary, StringComparison.Ordinal);
 
         // One event row for the whole read, and only GETs on the wire.
         RobotEvent row = Assert.Single(rig.Events, e => e.Category == EventCategory.Http);

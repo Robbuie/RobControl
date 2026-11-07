@@ -40,7 +40,7 @@ public static partial class SignalCatalog
     private static readonly string[] SkippedOwners = ["$NUMREG", "$POSREG", "$STRREG"];
 
     /// <summary>I/O types in the order the pendant's I/O menu lists them.</summary>
-    private static readonly List<string> IoOrder = ["DI", "DO", "RI", "RO", "UI", "UO", "SI", "SO", "WI", "WO", "GI", "GO", "AI", "AO", "F", "M"];
+    private static readonly List<string> IoOrder = ["DI", "DO", "RI", "RO", "UI", "UO", "SI", "SO", "WI", "WO", "WSI", "WSO", "GI", "GO", "AI", "AO", "F", "M", .. IoStateParser.SafeTypes];
 
     /// <summary>Registers out of a <c>NUMREG.VA</c> listing: <c>[2] = 1287  'Weld count'</c>.</summary>
     public static IReadOnlyList<SignalEntry> Registers(string? text)
@@ -65,28 +65,16 @@ public static partial class SignalCatalog
         return [.. result.DistinctBy(e => e.Address.Text)];
     }
 
-    /// <summary>I/O out of an <c>IOSTATE.DG</c> page: <c>DI[  1] ON   Part present</c>.</summary>
+    /// <summary>I/O out of an <c>IOSTATE.DG</c> page or its HTML wrapper: <c>DIN[  1] OFF  *IMSTP</c>.</summary>
     public static IReadOnlyList<SignalEntry> Io(string? text)
     {
         var result = new List<SignalEntry>();
-        if (string.IsNullOrEmpty(text))
+        foreach (IoPoint point in IoStateParser.Points(text))
         {
-            return result;
-        }
-
-        foreach (Match match in IoLine().Matches(text))
-        {
-            string type = match.Groups["type"].Value.ToUpperInvariant();
-            if (!SignalAddress.IoTypes.Contains(type)
-                || !SignalAddress.TryParse($"{type}[{match.Groups["n"].Value}]", out SignalAddress? address, out _))
+            if (SignalAddress.TryParse(point.Key, out SignalAddress? address, out _) && address!.Kind == SignalKind.Io)
             {
-                continue;
+                result.Add(new SignalEntry(address, Blank(point.Comment), point.State));
             }
-
-            // What follows the state on the line is the I/O comment - minus any table markup, in
-            // case the page is HTML.
-            string comment = Markup().Replace(match.Groups["rest"].Value, " ");
-            result.Add(new SignalEntry(address!, Blank(Spaces().Replace(comment, " ")), match.Groups["v"].Value.ToUpperInvariant()));
         }
 
         return [.. result.DistinctBy(e => e.Address.Text)];
@@ -235,7 +223,7 @@ public static partial class SignalCatalog
         [
             .. entries
                 .OrderBy(e => e.Address.Kind)
-                .ThenBy(e => e.Address.IoType is { } t ? IoOrder.IndexOf(t) : 0)
+                .ThenBy(e => e.Address.IoType is { } t ? (IoOrder.IndexOf(t) is >= 0 and var at ? at : IoOrder.Count) : 0)
                 .ThenBy(e => e.Address.Index ?? 0)
                 .ThenBy(e => e.Address.Text, StringComparer.Ordinal),
         ];
@@ -312,9 +300,6 @@ public static partial class SignalCatalog
     [GeneratedRegex(@"(?m)^\s*\[\s*(?<n>\d{1,6})\s*\]\s*=\s*(?<v>\S+)[ \t]*(?:'(?<c>[^'\r\n]*)')?", RegexOptions.CultureInvariant)]
     private static partial Regex RegisterLine();
 
-    [GeneratedRegex(@"\b(?<type>[A-Za-z]{1,2})\[\s*(?<n>\d{1,6})\s*\]\s*(?:<[^>]{0,80}>\s*){0,6}(?:=\s*)?(?<v>ON|OFF|-?\d+(?:\.\d+)?)\b(?<rest>[^\r\n]*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex IoLine();
-
     [GeneratedRegex(@"\$[A-Za-z0-9_]+(?:\[[^\]]*\])?(?:\.\$[A-Za-z0-9_]+(?:\[[^\]]*\])?)*", RegexOptions.CultureInvariant)]
     private static partial Regex VariableOnLine();
 
@@ -326,10 +311,4 @@ public static partial class SignalCatalog
 
     [GeneratedRegex(@"Access:\s*(?<a>[A-Za-z]{2})\b", RegexOptions.CultureInvariant)]
     private static partial Regex Access();
-
-    [GeneratedRegex(@"<[^>]{0,200}>", RegexOptions.CultureInvariant)]
-    private static partial Regex Markup();
-
-    [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
-    private static partial Regex Spaces();
 }

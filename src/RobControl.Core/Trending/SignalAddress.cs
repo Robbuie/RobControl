@@ -15,11 +15,15 @@ namespace RobControl.Core.Trending;
 /// </summary>
 public sealed partial record SignalAddress
 {
-    /// <summary>The I/O types a FANUC controller reports. Position registers (PR) are not scalars and are not here.</summary>
-    public static IReadOnlySet<string> IoTypes { get; } = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "DI", "DO", "RI", "RO", "UI", "UO", "SI", "SO", "WI", "WO", "GI", "GO", "AI", "AO", "F", "M",
-    };
+    /// <summary>
+    /// The I/O types a FANUC controller reports, as the pendant names them, plus DCS safe I/O
+    /// (<see cref="IoStateParser.SafeTypes"/>) - read from the I/O page like the rest, so they can be
+    /// watched and trended; nothing here can set one. Position registers (PR) are not scalars and are
+    /// not here.
+    /// </summary>
+    public static IReadOnlySet<string> IoTypes { get; } = new HashSet<string>(
+        ["DI", "DO", "RI", "RO", "UI", "UO", "SI", "SO", "WI", "WO", "WSI", "WSO", "GI", "GO", "AI", "AO", "F", "M", .. IoStateParser.SafeTypes],
+        StringComparer.Ordinal);
 
     private SignalAddress(SignalKind kind, string text, string? ioType, int? index)
     {

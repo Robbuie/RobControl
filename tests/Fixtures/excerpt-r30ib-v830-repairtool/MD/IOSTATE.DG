@@ -1,0 +1,65 @@
+<html><head>
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title> R1 (robot) Homepage </title>
+
+<script language="javascript">
+<!--
+var openSetupWin = [null, null, null, null];
+var appConf = [{page: "vsfrmn.stm", width: 1070, height: 850}];
+function genlink_url(menuhref) { window.location.href = '/softpart/genlink?' + menuhref; }
+//-->
+</script>
+</head>
+<body bgcolor="#FFF9e3">
+
+<table width="100%" border="2">
+  <tbody><tr>
+  <td align="center" valign="middle"><strong><font color="#bc1e33" size="6">
+                WEB SERVER</font><br>
+        <font color="black" size="3">
+                Hostname: R1<br>
+                Robot No: 0000000   <br>
+                File Name: /MD/IOSTATE.DG<br>
+                Date:  26/11/06
+                Time: 17:01:44
+        </font></strong></td>
+  </tr>
+</tbody></table>
+<pre>F Number: 0000000   
+VERSION : REPAIRTOOL+
+$VERSION: V8.30413       3/6/2023
+DATE:     06-NOV-26 17:01 
+
+IO STATUS::
+
+DIN[   1] OFF  *IMSTP
+DIN[   2]  ON  *Hold
+DIN[   3]  ON  *SFSPD
+DIN[   4] OFF  Cycle Stop
+DIN[  33] OFF  
+DIN[ 131]  ON    Auto Mode Req
+DIN[ 865] OFF  Rep%Cmp B0
+DOUT[   1] OFF  Cmd Enabled
+DOUT[   2] OFF  System Ready
+DOUT[   3] OFF  Prg Running
+GIN[   1]    0  Style # Init
+GIN[   2]    0  Job Seq # Init
+GIN[   5]    1  Changer Cnt
+GOUT[   1]    0  Style # Echo
+GOUT[   6]    0  Current Defect
+UI[   1] OFF  *IMSTP
+UI[   2]  ON  *Hold
+UO[   1] OFF  Cmd Enabled
+SI[   1] OFF  Fault reset
+SI[   2]  ON  Remote
+SO[   3]  ON  Fault LED
+RI[   1] OFF  
+RO[   1] OFF  
+FLG[   1] OFF  Continue                  FLG[ 513] OFF                          
+FLG[   2] OFF  Strm Flt Enbl             FLG[ 514]  ON                          
+FLG[   3] OFF                            FLG[ 515] OFF                          </pre>
+
+
+
+</body></html>

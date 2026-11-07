@@ -344,7 +344,7 @@
               <StackPanel DockPanel.Dock="Top">
                 <WrapPanel>
                   <Button Content="Read now" Style="{StaticResource PrimaryButton}" Command="{Binding ReadNowCommand}" Margin="0,0,10,0"
-                          ToolTip="GETs the controller's own diagnostic pages: active alarms, alarm history, program state, current position, I/O. Reads only." />
+                          ToolTip="GETs the controller's own diagnostic pages: active alarms, alarm history, program state, current position, stop signals, I/O. Reads only." />
                   <CheckBox Content="Every" IsChecked="{Binding AutoRefresh}" VerticalAlignment="Center" Margin="0,0,6,0"
                             ToolTip="Reads again on a timer while this robot stays selected. Never faster than every 5 s, and skipped while it is being backed up, probed or recorded." />
                   <TextBox Text="{Binding IntervalSeconds, UpdateSourceTrigger=LostFocus}" Width="44" FontFamily="{DynamicResource mono}" />
@@ -387,47 +387,202 @@
 
                 <TabItem Header="I/O">
                   <DockPanel Margin="4">
-                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-                      <TextBlock Text="Filter" VerticalAlignment="Center" Margin="0,0,6,0" />
-                      <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left"
-                               ToolTip="Shows only points whose name contains this: DO, UI[, RO[1" />
-                    </DockPanel>
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                      <TextBlock Text="Search" VerticalAlignment="Center" Margin="0,0,6,0" />
+                      <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="160" Margin="0,0,12,0"
+                               ToolTip="Matches the point or its comment: DO[, UI[, gun, clamp, estop. DIN and DOUT (as the page writes them) work too." />
+                      <ComboBox ItemsSource="{Binding IoCategories}" SelectedItem="{Binding IoCategory}" Width="210" Margin="0,0,12,0"
+                                ToolTip="One kind of I/O at a time. Safe I/O (DCS / CIP Safety) appears here when the controller lists it on its I/O page." />
+                      <CheckBox Content="Only ON" IsChecked="{Binding OnlyOn}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                ToolTip="Only points that are ON or TRUE, and group or analog values that are not zero." />
+                      <CheckBox Content="Named only" IsChecked="{Binding NamedOnly}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                ToolTip="Hide points with no I/O comment - most of a 2,000-point rack is unused." />
+                      <TextBlock Style="{StaticResource Muted}" Text="{Binding IoCount}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </WrapPanel>
                     <DataGrid ItemsSource="{Binding Io}"
-                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0"
+                              VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                              EnableRowVirtualization="True" ClipboardCopyMode="IncludeHeader">
                       <DataGrid.Columns>
-                        <DataGridTextColumn Header="Point" Width="110" Binding="{Binding Name, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                        <DataGridTextColumn Header="Value" Width="*" Binding="{Binding Value, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Type" Width="170" Binding="{Binding Category, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Point" Width="130" Binding="{Binding Name, Mode=OneWay}">
+                          <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource MonoText}">
+                              <Setter Property="ToolTip" Value="{Binding Listed}" />
+                            </Style>
+                          </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="State" Width="70" Binding="{Binding State, Mode=OneWay}">
+                          <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource MonoText}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsOn}" Value="True">
+                                  <Setter Property="Foreground" Value="{DynamicResource good}" />
+                                  <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                                <MultiDataTrigger>
+                                  <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsOn}" Value="True" />
+                                    <Condition Binding="{Binding Category}" Value="Stop signals" />
+                                  </MultiDataTrigger.Conditions>
+                                  <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                                </MultiDataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="Direction" Width="75" Binding="{Binding Direction, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Comment" Width="*" Binding="{Binding Comment, Mode=OneWay}" />
                       </DataGrid.Columns>
                     </DataGrid>
                   </DockPanel>
                 </TabItem>
 
                 <TabItem Header="Program">
-                  <ScrollViewer Margin="4" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                    <TextBox Text="{Binding ProgramState, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
-                             FontFamily="{DynamicResource mono}" TextWrapping="NoWrap" />
-                  </ScrollViewer>
+                  <Grid Margin="4">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="*" MinHeight="70" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="2*" MinHeight="90" />
+                    </Grid.RowDefinitions>
+                    <WrapPanel Grid.Row="0" Margin="0,0,0,6">
+                      <TextBlock Text="Search" VerticalAlignment="Center" Margin="0,0,6,0" />
+                      <TextBox Text="{Binding ProgramFilter, UpdateSourceTrigger=PropertyChanged}" Width="160" Margin="0,0,12,0"
+                               ToolTip="Matches names, comments, status, program type, where a task is, and source file." />
+                      <CheckBox Content="Running only" IsChecked="{Binding RunningOnly}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                      <TextBlock Style="{StaticResource Muted}" Text="{Binding ProgramCount}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </WrapPanel>
+                    <TextBlock Grid.Row="1" Style="{StaticResource PanelHead}" Text="TASKS" Margin="2,0,0,4" />
+                    <DataGrid Grid.Row="2" ItemsSource="{Binding Tasks}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Width="40" Binding="{Binding Number, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Task" Width="130" Binding="{Binding Name, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Status" Width="80" Binding="{Binding Status, Mode=OneWay}">
+                          <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                  <Setter Property="Foreground" Value="{DynamicResource good}" />
+                                  <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="At" Width="260" Binding="{Binding Where, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Call stack (outermost first)" Width="*" Binding="{Binding CallStack, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Grid.Row="3" Style="{StaticResource PanelHead}" Text="PROGRAMS LOADED (HOVER A ROW FOR EVERY FIELD)" Margin="2,10,0,4" />
+                    <DataGrid Grid.Row="4" ItemsSource="{Binding Programs}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader"
+                              VirtualizingPanel.IsVirtualizing="True" EnableRowVirtualization="True">
+                      <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                          <Setter Property="ToolTip" Value="{Binding Details}" />
+                        </Style>
+                      </DataGrid.RowStyle>
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Program" Width="140" Binding="{Binding Name, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Type" Width="60" Binding="{Binding Type, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Comment" Width="*" MinWidth="120" Binding="{Binding Comment, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Task" Width="70" Binding="{Binding Status, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Lines" Width="55" Binding="{Binding Lines, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Bytes" Width="65" Binding="{Binding Size, Mode=OneWay, StringFormat=N0}" />
+                        <DataGridTextColumn Header="Modified" Width="125" Binding="{Binding ModifiedText, Mode=OneWay}" SortMemberPath="Modified" />
+                        <DataGridTextColumn Header="Source" Width="150" Binding="{Binding Source, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Write" Width="70" Binding="{Binding Protection, Mode=OneWay}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </Grid>
                 </TabItem>
 
                 <TabItem Header="Position">
-                  <ScrollViewer Margin="4" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                    <TextBox Text="{Binding Position, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
-                             FontFamily="{DynamicResource mono}" TextWrapping="NoWrap" />
-                  </ScrollViewer>
+                  <DockPanel Margin="4">
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" Text="{Binding PositionNote}" TextWrapping="Wrap" Margin="2,0,0,8" />
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MaxWidth="320" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" MaxWidth="440" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <DockPanel Grid.Column="0">
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="JOINTS" Margin="2,0,0,4" />
+                        <DataGrid ItemsSource="{Binding Joints}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="Group" Width="50" Binding="{Binding Group, Mode=OneWay}" />
+                            <DataGridTextColumn Header="Axis" Width="50" Binding="{Binding Axis, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                            <DataGridTextColumn Header="Value" Width="*" Binding="{Binding Value, Mode=OneWay}">
+                              <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource MonoText}">
+                                  <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                              </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="Unit" Width="40" Binding="{Binding Unit, Mode=OneWay}" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+                      <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="CARTESIAN" Margin="2,0,0,4" />
+                        <DataGrid ItemsSource="{Binding Cartesian}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="Group" Width="50" Binding="{Binding Group, Mode=OneWay}" />
+                            <DataGridTextColumn Header="Axis" Width="50" Binding="{Binding Axis, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                            <DataGridTextColumn Header="User frame" Width="*" Binding="{Binding User, Mode=OneWay}">
+                              <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource MonoText}">
+                                  <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                              </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="World" Width="*" Binding="{Binding World, Mode=OneWay}">
+                              <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource MonoText}">
+                                  <Setter Property="HorizontalAlignment" Value="Right" />
+                                </Style>
+                              </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="Unit" Width="40" Binding="{Binding Unit, Mode=OneWay}" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+                    </Grid>
+                  </DockPanel>
                 </TabItem>
 
                 <TabItem Header="Pages">
-                  <DataGrid Margin="4" ItemsSource="{Binding Pages}"
-                            AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                            GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0">
-                    <DataGrid.Columns>
-                      <DataGridTextColumn Header="Page" Width="120" Binding="{Binding Title, Mode=OneWay}" />
-                      <DataGridTextColumn Header="File" Width="100" Binding="{Binding FileName, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                      <DataGridTextColumn Header="Result" Width="90" Binding="{Binding Status, Mode=OneWay}" />
-                      <DataGridTextColumn Header="Why" Width="*" Binding="{Binding Message, Mode=OneWay}" />
-                    </DataGrid.Columns>
-                  </DataGrid>
+                  <Grid Margin="4">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="6" />
+                      <RowDefinition Height="*" MinHeight="80" />
+                    </Grid.RowDefinitions>
+                    <DataGrid Grid.Row="0" ItemsSource="{Binding Pages}" SelectedItem="{Binding SelectedPage}" MaxHeight="190"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Page" Width="120" Binding="{Binding Title, Mode=OneWay}" />
+                        <DataGridTextColumn Header="File" Width="100" Binding="{Binding FileName, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Result" Width="90" Binding="{Binding Status, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Why" Width="*" Binding="{Binding Message, Mode=OneWay}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBox Grid.Row="2" Text="{Binding SelectedPageText, Mode=OneWay}" IsReadOnly="True"
+                             FontFamily="{DynamicResource mono}" TextWrapping="NoWrap"
+                             HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" />
+                  </Grid>
                 </TabItem>
               </TabControl>
             </DockPanel>
