@@ -20,6 +20,9 @@ namespace RobControl.RobotSim;
 /// </summary>
 public sealed class SimController : IAsyncDisposable
 {
+    /// <summary>The home page file in a profile folder, served at <c>/</c>.</summary>
+    public const string HomePageFile = "home.htm";
+
     private static readonly Encoding Wire = Encoding.Latin1;
     private static readonly HashSet<string> ReadVerbs = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -388,6 +391,16 @@ public sealed class SimController : IAsyncDisposable
     private (int, string, string, byte[]) Route(string target)
     {
         string path = Uri.UnescapeDataString(target.Split('?')[0]);
+
+        // The controller's home page, which links the diagnostic pages it has. A capture saves it as
+        // home.htm beside profile.json, so a captured controller replays with the same links.
+        if (path == "/")
+        {
+            string home = Path.Combine(_profile.Folder, HomePageFile);
+            return _profile.Folder.Length > 0 && File.Exists(home)
+                ? (200, "OK", "text/html", File.ReadAllBytes(home))
+                : (404, "Not Found", "text/html", Wire.GetBytes("<html><body>Not found</body></html>"));
+        }
 
         if (path.StartsWith("/MD/", StringComparison.OrdinalIgnoreCase))
         {

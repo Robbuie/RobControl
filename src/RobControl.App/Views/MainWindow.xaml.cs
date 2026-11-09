@@ -1,4 +1,5 @@
 // UseWPF drops System.IO from the implicit usings; the Help menu touches Directory and IOException.
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,6 +24,9 @@ public partial class MainWindow : Window
         + "Site bundle (*.zip)|*.zip|JSON (*.json)|*.json|All files (*.*)|*.*";
 
     private bool _checkingForUpdates;
+    private TrayIcon? _tray;
+    private bool _exiting;
+    private bool _toldAboutTray;
     private DocumentWindow? _readme;
     private DocumentWindow? _whatsNew;
 
@@ -30,6 +34,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+
+        // Logging off or shutting Windows down ends RobControl, tray or not.
+        Application.Current.SessionEnding += (_, _) => _exiting = true;
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.F1)
@@ -47,6 +54,7 @@ public partial class MainWindow : Window
         if (e.OldValue is MainViewModel old)
         {
             old.CompareOpened -= OnCompareOpened;
+            old.BackgroundNotice -= OnBackgroundNotice;
             old.EditRobotDialog = null;
             old.Confirm = null;
             old.ShowMessage = null;
@@ -76,6 +84,7 @@ public partial class MainWindow : Window
         if (e.NewValue is MainViewModel viewModel)
         {
             viewModel.CompareOpened += OnCompareOpened;
+            viewModel.BackgroundNotice += OnBackgroundNotice;
             viewModel.EditRobotDialog = ShowRobotDialog;
             viewModel.Confirm = question =>
                 MessageBox.Show(this, question, "RobControl", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No)
@@ -317,6 +326,7 @@ public partial class MainWindow : Window
 
         if (dialog.ShouldShutdown)
         {
+            _exiting = true;
             Application.Current.Shutdown();
         }
     }
@@ -365,5 +375,86 @@ public partial class MainWindow : Window
             MessageBoxButton.OK,
             MessageBoxImage.Information);
 
-    private void OnExit(object sender, RoutedEventArgs e) => Close();
+    private void OnExit(object sender, RoutedEventArgs e) => ExitForReal();
+
+    // ------------------------------------------------------------------ notification area
+
+    /// <summary>
+    /// Closing the window while RobControl is doing something on its own - a schedule, trend recording,
+    /// a backup in progress - hides it to the notification area instead of ending the process, which
+    /// would quietly stop all of them. Robots &gt; Exit, or Exit on the icon's menu, really exits.
+    /// </summary>
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        base.OnClosing(e);
+        if (e.Cancel || _exiting || ViewModel?.BackgroundWork is not { } work)
+        {
+            return;
+        }
+
+        try
+        {
+            _tray ??= CreateTray();
+        }
+        catch (InvalidOperationException)
+        {
+            // No notification area to go to (a locked-down shell): close as before.
+            return;
+        }
+
+        e.Cancel = true;
+        _tray.Text = "RobControl - " + work;
+        _tray.Show();
+        Hide();
+        if (!_toldAboutTray)
+        {
+            _toldAboutTray = true;
+            _tray.Notify("RobControl is still running", work + " Double-click the icon to open it; right-click > Exit to stop.");
+        }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _tray?.Dispose();
+        _tray = null;
+        base.OnClosed(e);
+    }
+
+    private void OnBackgroundNotice(object? sender, string message)
+    {
+        if (_tray is { IsVisible: true } tray)
+        {
+            tray.Notify("RobControl", message);
+            if (ViewModel?.BackgroundWork is { } work)
+            {
+                tray.Text = "RobControl - " + work;
+            }
+        }
+    }
+
+    private TrayIcon CreateTray()
+    {
+        var tray = new TrayIcon("RobControl");
+        tray.OpenRequested += (_, _) => RestoreFromTray();
+        tray.ExitRequested += (_, _) => ExitForReal();
+        return tray;
+    }
+
+    private void RestoreFromTray()
+    {
+        _tray?.Hide();
+        Show();
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+    }
+
+    private void ExitForReal()
+    {
+        _exiting = true;
+        Close();
+    }
 }

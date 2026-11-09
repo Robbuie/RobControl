@@ -8,7 +8,8 @@ namespace RobControl.Core.Trending;
 ///
 /// <para>Expected lines look like <c>[2] = 1287  'Weld count'</c>. <b>Unconfirmed</b> against our
 /// controllers (Phase 0); the pattern is tolerant of spacing, a missing comment, and floats in
-/// exponent form, and ignores every line it does not recognise rather than failing.</para>
+/// exponent form, and ignores every line it does not recognise rather than failing. An HTML-wrapped
+/// page (what the web server sends) is unwrapped first.</para>
 /// </summary>
 public static partial class RegisterFileParser
 {
@@ -20,7 +21,9 @@ public static partial class RegisterFileParser
             return values;
         }
 
-        foreach (Match match in Line().Matches(text))
+        // Over HTTP the listing arrives inside the web server's HTML page, like every /MD/ file (seen
+        // on an R-30iB V8.30 for IOSTATE.DG); the pattern is anchored to line starts, so take it out.
+        foreach (Match match in Line().Matches(Transports.Http.DiagnosticPage.Text(text)))
         {
             if (int.TryParse(match.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int n)
                 && ScalarParser.TryParse(match.Groups["v"].Value, out double value))

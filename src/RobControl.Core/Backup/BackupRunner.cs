@@ -423,8 +423,18 @@ public sealed class BackupRunner
         {
             if (_client is null)
             {
-                _client = await FtpClient.ConnectAsync(robot.Address, robot.FtpPort, options.Ftp, transcript, cancellationToken)
-                    .ConfigureAwait(false);
+                try
+                {
+                    _client = await FtpClient.ConnectAsync(robot.Address, robot.FtpPort, options.Ftp, transcript, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (FtpConnectException ex) when (ex.Failure == FtpConnectFailure.NoAnswer)
+                {
+                    // Silence on 21 alone is not "the robot is off": look at the web port once, so
+                    // the message can say which it is.
+                    throw await FtpReachability.ExplainAsync(robot, ex, transcript, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
                 await _client.LoginAsync(robot.Ftp, cancellationToken).ConfigureAwait(false);
                 _device = null;
                 _path = [];

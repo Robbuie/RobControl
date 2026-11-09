@@ -68,6 +68,16 @@ public static class AppPaths
         "Systems");
 
     /// <summary>
+    /// Where Robots &gt; Capture for support puts its folders and zips, one folder per site:
+    /// Documents\RobControl\Captures\&lt;site key&gt;. In Documents because a capture is something to
+    /// find in Explorer and attach to an email.
+    /// </summary>
+    public static string Captures { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments, Environment.SpecialFolderOption.DoNotVerify),
+        "RobControl",
+        "Captures");
+
+    /// <summary>
     /// The optional settings file. Absent by default and absent on most machines: everything it can
     /// hold has a working default, and the tool has to run correctly on a laptop where nobody has
     /// ever created it.

@@ -32,6 +32,39 @@ public class ControllerWebClientDropTests
         Assert.StartsWith("GET /MD/IOSTATE.DG HTTP/1.0", server.Requests[2], StringComparison.Ordinal);
         Assert.Contains("Connection: close", server.Requests[0], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Accept:", server.Requests[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(HttpAttempt.PlainHttp10, exchange.Via);
+        Assert.Equal("only as plain HTTP/1.0", exchange.ViaText);
+    }
+
+    [Theory]
+    [InlineData(0, HttpAttempt.FirstTry)]
+    [InlineData(1, HttpAttempt.AfterRetry)]
+    public async Task TheExchangeSaysWhichWayOfAskingAnswered(int resets, HttpAttempt expected)
+    {
+        await using var server = new ResettingServer(resets: resets, closeWithReset: false);
+        using var web = new ControllerWebClient(IPAddress.Loopback, server.Port, timeout: TimeSpan.FromSeconds(10));
+        HttpExchange exchange = await web.GetDiagnosticFileAsync("IOSTATE.DG");
+        Assert.Equal(200, exchange.StatusCode);
+        Assert.Equal(expected, exchange.Via);
+        Assert.Equal(resets + 1, server.Requests.Count);
+    }
+
+    [Fact]
+    public void ALiveReadSaysWhenThePagesNeededAFallback()
+    {
+        var files = new List<RobControl.Core.Live.LiveFile>
+        {
+            new("Active alarms", "ERRACT.LS", RobControl.Core.Live.LiveFileStatus.Ok, "", null) { Via = HttpAttempt.PlainHttp10 },
+            new("I/O", "IOSTATE.DG", RobControl.Core.Live.LiveFileStatus.Ok, "", null) { Via = HttpAttempt.PlainHttp10 },
+            new("Program state", "PRGSTATE.DG", RobControl.Core.Live.LiveFileStatus.Ok, "", null) { Via = HttpAttempt.AfterRetry },
+        };
+        var snapshot = new RobControl.Core.Live.LiveSnapshot(DateTimeOffset.UtcNow, files, [], [], new Dictionary<string, double>());
+        Assert.Equal("Web server answered after a retry (1 page), only as plain HTTP/1.0 (2 pages).", snapshot.Route);
+        Assert.EndsWith(snapshot.Route!, snapshot.Summary, StringComparison.Ordinal);
+
+        var plain = new RobControl.Core.Live.LiveSnapshot(DateTimeOffset.UtcNow,
+            [new("I/O", "IOSTATE.DG", RobControl.Core.Live.LiveFileStatus.Ok, "", null) { Via = HttpAttempt.FirstTry }], [], [], new Dictionary<string, double>());
+        Assert.Null(plain.Route);
     }
 
     [Fact]

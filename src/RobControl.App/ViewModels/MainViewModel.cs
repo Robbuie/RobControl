@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using RobControl.App.Composition;
 using RobControl.Core;
 using RobControl.Core.Backup;
+using RobControl.Core.Capture;
 using RobControl.Core.Controllers;
 using RobControl.Core.Diagnostics;
 using RobControl.Core.Events;
@@ -88,6 +89,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CompareCommand = new RelayCommand(CompareChecked, () => Selected is { Backups.Count: >= 2 });
         RefreshCommand = new RelayCommand(RefreshAll);
         DiagnoseNetworkCommand = new RelayCommand(DiagnoseNetwork, () => Selected is not null);
+        CaptureCommand = new AsyncRelayCommand(CaptureAsync, () => Selected is { IsBusy: false } row && !_recorder.IsRecording(row.Robot.Id));
+        OpenCapturesCommand = new RelayCommand(() => OpenFolder?.Invoke(CaptureFolder()));
         OpenBackupFolderCommand = new RelayCommand<BackupRowViewModel>(row => OpenFolder?.Invoke(row?.Folder ?? RobotFolderOrRoot()));
         OpenArchiveCommand = new RelayCommand(() => OpenFolder?.Invoke(RobotFolderOrRoot()));
         ChooseArchiveCommand = new RelayCommand(ChooseArchive);
@@ -152,6 +155,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>Raised when a comparison has been built, so the view can bring its tab forward.</summary>
     public event EventHandler? CompareOpened;
+
+    /// <summary>
+    /// Something worth telling a person who closed the window to the notification area: a scheduled
+    /// backup finished. The window shows it beside the tray icon, and only while it is hidden.
+    /// </summary>
+    public event EventHandler<string>? BackgroundNotice;
 
     // ------------------------------------------------------------------ state
 
@@ -300,6 +309,36 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             : string.Create(CultureInfo.CurrentCulture, $"Every {_settings.ScheduleHours} h");
 
     /// <summary>
+    /// What would stop if the window closed, in a sentence - or null when nothing would. While this is
+    /// not null, closing the window hides it to the notification area instead of ending RobControl.
+    /// </summary>
+    public string? BackgroundWork
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (IsBusy)
+            {
+                parts.Add("A probe, backup or capture is running.");
+            }
+
+            if (_settings.ScheduleHours > 0)
+            {
+                parts.Add(string.Create(CultureInfo.CurrentCulture,
+                    $"Backing up {_system.Name} every {_settings.ScheduleHours} h{(_nextScheduled is { } next ? $" (next {next.ToLocalTime():ddd HH:mm})" : string.Empty)}."));
+            }
+
+            int recording = _recorder.Recording.Count;
+            if (recording > 0)
+            {
+                parts.Add(string.Create(CultureInfo.CurrentCulture, $"Recording trends on {recording} robot(s)."));
+            }
+
+            return parts.Count == 0 ? null : string.Join(" ", parts);
+        }
+    }
+
+    /// <summary>
     /// The whole event log of this site - or the selected robot's, when the tab shows only that - as
     /// CSV. The record of everything RobControl has sent to a controller here.
     /// </summary>
@@ -342,6 +381,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public IRelayCommand RefreshCommand { get; }
 
     public IRelayCommand DiagnoseNetworkCommand { get; }
+
+    /// <summary>Robots &gt; Capture for support: everything the selected controller says, read-only, zipped.</summary>
+    public IAsyncRelayCommand CaptureCommand { get; }
+
+    public IRelayCommand OpenCapturesCommand { get; }
 
     public IRelayCommand<BackupRowViewModel> OpenBackupFolderCommand { get; }
 
@@ -808,6 +852,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 row.Activity = null;
                 row.Progress = 0;
                 RefreshBackups(row);
+            }
+
+            if (!ask)
+            {
+                BackgroundNotice?.Invoke(this, string.Create(CultureInfo.CurrentCulture,
+                    $"Scheduled backup of {_system.Name}: {complete} of {todo.Count} robot(s) complete."));
             }
 
             End();
@@ -1422,6 +1472,93 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ------------------------------------------------------------------ capture
+
+    private string CaptureFolder()
+    {
+        string folder = Path.Combine(AppPaths.Captures, _site.Key);
+        Directory.CreateDirectory(folder);
+        return folder;
+    }
+
+    /// <summary>
+    /// One robot, read-only: the controller's own pages, a few FTP files, two KCL SHOWs, what every
+    /// parser made of them - plus its newest complete backup and its event log - in one folder and a
+    /// zip. What to take home from a first visit, and what FANUC support asks for.
+    /// </summary>
+    private async Task CaptureAsync()
+    {
+        if (Selected is not { IsBusy: false } row)
+        {
+            return;
+        }
+
+        if (_recorder.IsRecording(row.Robot.Id))
+        {
+            ShowMessage?.Invoke($"{row.Robot.Describe()} is recording trends. Stop recording it first - one conversation with a controller at a time.");
+            return;
+        }
+
+        BackupSet? newest = _archive.LatestComplete(row.Robot);
+        string question = $"Capture {row.Robot.Describe()} for support?\n\n"
+            + "RobControl reads, one at a time: the web server's home page and diagnostic index, every diagnostic file they list "
+            + $"(up to {new CaptureOptions().PageLimit}), a few files over FTP and two KCL SHOW commands. Nothing is written to the robot.\n\n"
+            + (newest is null ? "This robot has no complete backup yet, so none is included." : $"Its newest complete backup ({newest.FolderName}) and its event log are included.")
+            + $"\n\nThe folder and zip go to {CaptureFolder()}.";
+        if (Confirm?.Invoke(question) != true)
+        {
+            return;
+        }
+
+        string? events = null;
+        try
+        {
+            events = EventLogCsv.ToCsv(_store.RecentEvents(int.MaxValue, row.Robot));
+        }
+        catch (Exception ex) when (ex is RobControlException or InvalidOperationException or System.Data.Common.DbException)
+        {
+            _trace.Warn($"Capture: the event log could not be read: {ex.Message}");
+        }
+
+        CancellationToken token = Begin();
+        row.IsBusy = true;
+        row.Activity = "Capturing...";
+        try
+        {
+            var options = new CaptureOptions { Tool = _tool, BackupFolder = newest?.FolderPath, EventLogCsv = events };
+            var progress = new Progress<string>(line =>
+            {
+                if (line.Length > 0)
+                {
+                    Status = $"{row.Name}: {line}";
+                }
+            });
+            string parent = CaptureFolder();
+            CaptureResult result = await Task.Run(() => ControllerCapture.RunAsync(row.Robot, parent, options, progress, _store, token), token)
+                .ConfigureAwait(true);
+            Status = $"Captured {row.Name}: {result.Summary}";
+            string where = result.ZipPath ?? result.Folder;
+            if (Confirm?.Invoke($"Captured {row.Robot.Describe()}.\n\n{result.Summary}\n\nSaved as {where}\n\nRead report.txt inside first: program names and comments can be site-confidential. Open the folder now?") == true)
+            {
+                OpenFolder?.Invoke(parent);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Capture stopped.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ShowMessage?.Invoke($"The capture could not be written to {CaptureFolder()}: {ex.Message}");
+        }
+        finally
+        {
+            row.IsBusy = false;
+            row.Activity = null;
+            End();
+        }
+    }
+
     private string RobotFolderOrRoot()
     {
         string folder = Selected is { } row ? _archive.RobotFolder(row.Robot) : _archive.Root;
@@ -1492,6 +1629,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StopCommand.NotifyCanExecuteChanged();
         CompareCommand.NotifyCanExecuteChanged();
         DiagnoseNetworkCommand.NotifyCanExecuteChanged();
+        CaptureCommand.NotifyCanExecuteChanged();
         ImportSiteCommand.NotifyCanExecuteChanged();
         ExportBundleCommand.NotifyCanExecuteChanged();
         Live.RaiseCanExecute();

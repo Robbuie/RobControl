@@ -29,7 +29,28 @@ public sealed record LiveSnapshot(
             int ok = Files.Count(f => f.IsOk);
             int points = Math.Max(Io.Count, IoPoints.Count);
             string locked = Files.Any(f => f.Status == LiveFileStatus.Locked) ? " Diagnostic files are locked." : string.Empty;
-            return $"{ok} of {Files.Count} pages read; {ActiveAlarms.Count} active alarm(s), {points} I/O point(s).{locked}";
+            string route = Route is { } r ? " " + r : string.Empty;
+            return $"{ok} of {Files.Count} pages read; {ActiveAlarms.Count} active alarm(s), {points} I/O point(s).{locked}{route}";
+        }
+    }
+
+    /// <summary>
+    /// How the web server had to be asked, when it was not simply the first try: "Web server answered
+    /// only as plain HTTP/1.0 (6 pages)." Null when every page answered first time or nothing did.
+    /// </summary>
+    public string? Route
+    {
+        get
+        {
+            var odd = Files.Where(f => f.Via is Transports.Http.HttpAttempt.AfterRetry or Transports.Http.HttpAttempt.PlainHttp10)
+                .GroupBy(f => f.Via!.Value).OrderBy(g => g.Key).ToList();
+            if (odd.Count == 0)
+            {
+                return null;
+            }
+
+            return "Web server answered " + string.Join(", ", odd.Select(g =>
+                $"{Transports.Http.HttpExchange.Describe(g.Key)} ({g.Count()} page{(g.Count() == 1 ? string.Empty : "s")})")) + ".";
         }
     }
 

@@ -18,7 +18,7 @@ settings to make itself work - when something is locked, it says where on the pe
 | **Live** | What the selected robot says right now, from its own web pages: active alarms, recent alarm history, every I/O point (safe I/O and stop signals included), tasks and programs, and current position - as tables you can search. Read once or every few seconds; reads only. |
 | **Probe** | What the controller is - generation, software version, application, arm, F-number - and which ways in are open: FTP, diagnostic files, KCL - and whether its clock agrees with this PC's. When something is locked it says where on the pendant to change it, and does not change it itself. |
 | **Compare** | Any two backups of a robot: which files changed, were added or removed, and the line diff of the ASCII listings (`.LS`, `.VA`). |
-| **Schedule** | Fleet backups every 4/8/12/24 hours while the app is open. A robot whose scheduled backup fails or comes back partial is tried again a few minutes later. |
+| **Schedule** | Fleet backups every 4/8/12/24 hours while the app is running. Closing the window keeps RobControl going in the notification area, so the schedule carries on. A robot whose scheduled backup fails or comes back partial is tried again a few minutes later. |
 | **Verify** | Re-checks backups on disk against the SHA-256 recorded when each was taken, so a file edited, truncated or damaged by a bad copy is caught before anyone restores from it. |
 | **Trend** | Registers, I/O and system variables, typed as on the pendant (`R[1-10], DI[1..8], $TIMER[1].$TIMER_VAL`). Read once, or record several robots at once and overlay them on one chart. Only changes are stored; CSV export. |
 | **Search** | Across every robot's newest backup (or the whole history): a program name, `R[45]`, `DO[120]` or any text. Shows which programs call a program or use a register, and which programs nothing calls. |
@@ -28,6 +28,7 @@ settings to make itself work - when something is locked, it says where on the pe
 | **Many at once** | Ctrl/Shift-click robots in the list and Probe, Back up and Trends act on all of them. |
 | **Event log** | Every probe, backup, KCL read and trend session, append-only at the database. Export it as CSV for plant IT. |
 | **CSV everywhere** | Alarms, search hits, where-used, the robot list, network settings, trends and the event log all export to CSV for Excel. |
+| **Capture for support** | Everything one robot says about itself, read-only, in one folder and a zip: every diagnostic page it lists, a few files over FTP, its newest backup, its event log, and what RobControl made of each. What to take home from a first visit, and what FANUC support asks for. |
 | **Diagnose network** | Opens [NetControl](https://github.com/Robbuie/NetControl) on a robot that does not answer. |
 
 ## Getting started
@@ -153,6 +154,43 @@ controller does not have - a USB stick that is not in - fails on its own and the
 
 An FTP backup is not an image backup: it restores files, not a dead controller. For that, use the
 controller's own image backup (boot monitor, or Auto Backup to `FRA:` or a memory card).
+
+## When a robot does not answer
+
+RobControl looks before it gives up, and says which of these it is:
+
+| Message says | What it means | Where to look |
+|---|---|---|
+| *is on the network - its web server answers - but FTP ... sent nothing back* | The robot is there; FTP is switched off on it, or something on the way (a firewall, a managed switch, a cell router) drops port 21. | **Setup > Host Comm > [SHOW] > Servers** on the pendant: the FTP server tags should be *STARTED*. If they are, ask whoever runs the plant network about port 21 to that robot. |
+| *refused the connection* | The robot answered at once that nothing listens on that port. | The FTP or web server is off on the controller, or the address belongs to something else. |
+| *accepted the connection ... but its FTP server never said hello* | FTP is there but busy. A controller serves a fixed number of FTP sessions, one per server tag. | Another laptop, a cell PC or a backup job may be holding them. Try again in a minute. |
+| *Nothing ... answered - not FTP, not the web server* | Nothing at that address. | Power, cable, the right network, the right address. **Diagnose network** opens NetControl on it. |
+| *accepted the connection ... and then dropped it* (web server) | The robot is there; the web server hung up. RobControl has already asked three ways. | See the end of *Live* below. |
+
+The checks are one TCP connection to the robot's web port, opened and closed with nothing sent on it.
+The **Event log** records which way the web server answered each page: *first try*, *after a retry*,
+or *only as plain HTTP/1.0*. The Live status line says so too when it was not the first try.
+
+## Capture for support
+
+**Robots > Capture for support** reads the selected robot, one request at a time with a pause
+between them, and writes everything it heard into one folder and a zip of it under
+`Documents\RobControl\Captures\<site>` (**Robots > Open captures folder**):
+
+- the web server's home page and diagnostic index, and **every diagnostic file they list** (up to 80):
+  alarms, I/O, program state, position, stop signals, version, Ethernet, I/O config and the rest -
+  each saved exactly as it came, with its status, timing and which way of asking answered;
+- over FTP, the login, a listing of `MD:` and a handful of files (summary, alarm logs, registers,
+  host settings, one program listing, one program);
+- two KCL questions: `SHOW VAR $VERSION` and `SHOW CLOCK`;
+- **report.txt** - what RobControl made of each page: how many I/O points of each type, registers,
+  tasks, programs, alarms. A zero there with the page beside it is exactly what is needed to fix a
+  reader for that controller;
+- the robot's **newest complete backup** and its **event log** (`events.csv`).
+
+It sends nothing that writes: FTP downloads, web page reads and KCL `SHOW` only, the same as a
+backup and the Live tab. It is refused while the robot is recording trends. Read `report.txt` and the
+`MD` folder before sending a capture to anyone: program names and comments can be site-confidential.
 
 ## Live
 
@@ -286,6 +324,7 @@ opens it in the browser, to print or save as PDF. It is made from the backups al
 | **Backups** | The site's archive folder: `<robot>\<date_time>\MD\...`, with a `manifest.json` (SHA-256 of every file) and the FTP transcript in each. Readable in Explorer without RobControl. A backup cut short ends in `_INCOMPLETE`. |
 | **Sites and systems** | `Documents\RobControl\Systems\` - a folder per site with its `site.json`, and a folder per system with its `system.json`. **Site > Open site folder** and **System > Open system folder** go there. |
 | **Databases** | `%LOCALAPPDATA%\RobControl\sites\<site>\robcontrol.db` - the robot list, probes, event log and trends of each site. |
+| **Captures** | `Documents\RobControl\Captures\<site>\<robot>_<date_time>` and a `.zip` of it beside - **Robots > Open captures folder**. |
 | **Site reports, CSV exports and bundles** | Wherever you save them; RobControl suggests a name with the site and the date. |
 | **Event log** | In the site's database; the **Event log** tab shows it and **Export CSV** there writes it all - every probe, backup, KCL read and trend session, and what came back. What to hand plant IT or a FANUC engineer who asks what this laptop has been doing on their network. |
 | **Diagnostic log** | `%LOCALAPPDATA%\RobControl\logs` - **Help > Open the diagnostic log folder**. Send this when something misbehaves. |
@@ -297,6 +336,15 @@ opens it in the browser, to print or save as PDF. It is made from the backups al
 |---|---|
 | `RobControl.exe --site "Plant 3" --system "Line 4"` | Opens that system without the picker. Without `--system`, the system used last there, or the first. |
 | `RobControl.exe --robot 10.20.1.54` | Opens the system used last, without the picker, and selects that robot - how NetControl's *Open in RobControl* lands. |
+
+## Closing the window
+
+If a schedule is on, trends are recording, or a backup is running, closing the window does not end
+RobControl: it carries on in the notification area by the clock, and says so the first time. Click
+or double-click its icon to bring the window back. A scheduled backup that finishes while the window
+is closed shows a notification with how many robots completed. To really stop, use **Robots > Exit**
+or right-click the icon > **Exit** - that also stops the schedule and any recording. With nothing
+running in the background, closing the window exits as before.
 
 ## Help
 
@@ -332,9 +380,11 @@ several robots at once. The synthetic profile is hand-written; see `tests/Fixtur
 dotnet run --project tools/RobControl.Probe -- 10.20.1.54
 ```
 
-Read-only. Logs in (anonymous unless `--user` / `--password`), lists `md:`, copies a handful of
-representative files, fetches the diagnostic pages and asks KCL two `SHOW` questions - then writes
-everything it saw into a `capture-...` folder in the shape `robotsim` serves. That folder is how
+Read-only, and the same capture as **Robots > Capture for support** in the app (Core's
+`ControllerCapture`). Logs in (anonymous unless `--user` / `--password`), lists `md:`, copies a
+handful of representative files, follows the web server's own index to every diagnostic page and asks
+KCL two `SHOW` questions - then writes everything it saw into a `capture-...` folder (and zip) in the
+shape `robotsim` serves. That folder is how
 RobControl learns what your controllers really say: read it through for anything site-confidential,
 then commit it under `tests/Fixtures/`.
 

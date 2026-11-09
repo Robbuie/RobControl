@@ -120,6 +120,9 @@
         <MenuItem Header="_Probe selected" Command="{Binding ProbeSelectedCommand}"
                   ToolTip="Read-only: logs in over FTP and lists md:, reads the summary file, asks KCL for $VERSION. Says what it is and what is locked." />
         <MenuItem Header="Probe a_ll" Command="{Binding ProbeAllCommand}" />
+        <MenuItem Header="_Capture for support..." Command="{Binding CaptureCommand}"
+                  ToolTip="Read-only: every diagnostic page the controller lists, a few FTP files, two KCL SHOWs, what RobControl made of each, its newest backup and event log - one folder and a zip." />
+        <MenuItem Header="Open ca_ptures folder" Command="{Binding OpenCapturesCommand}" />
         <Separator />
         <MenuItem Header="_Diagnose network in NetControl" Command="{Binding DiagnoseNetworkCommand}"
                   ToolTip="Opens NetControl on this robot's address - for when it does not answer at all." />

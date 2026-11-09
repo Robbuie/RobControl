@@ -103,7 +103,8 @@ public sealed class CapabilityProbe
         }
         catch (FtpConnectException ex)
         {
-            return (new ProbeStep(FtpStep, ProbeOutcome.Unreachable, ex.Message, ex.Remediation, watch.Elapsed), ControllerIdentity.Unknown);
+            FtpConnectException explained = await FtpReachability.ExplainAsync(robot, ex, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return (new ProbeStep(FtpStep, ProbeOutcome.Unreachable, explained.Message, explained.Remediation, watch.Elapsed), ControllerIdentity.Unknown);
         }
         catch (FtpException ex) when (ex.Reply?.Code == 530)
         {
@@ -132,14 +133,14 @@ public sealed class CapabilityProbe
 
             // The web server's Date header is the one clock reading that costs no extra request.
             ClockReading? clock = summary.ServerDate is { } date ? ClockReading.Compare(date, summary.ReceivedUtc) : null;
-            string message = string.Create(CultureInfo.InvariantCulture, $"{SummaryFile}: {summary.Body.Length} bytes.")
+            string message = string.Create(CultureInfo.InvariantCulture, $"{SummaryFile}: {summary.Body.Length} bytes ({summary.ViaText}).")
                 + (clock is null ? string.Empty : " " + clock.Describe());
             string? remediation = clock is { IsOff: true }
                 ? "Alarm times and backup history from this robot will not line up with the others. Set the controller's clock on the pendant (System > Clock), and check the backup battery if it has drifted after a power-off."
                 : null;
 
             return (new ProbeStep(HttpStep, ProbeOutcome.Available, message, remediation, watch.Elapsed),
-                ControllerIdentityParser.Parse(summary.Text), clock);
+                ControllerIdentityParser.Parse(DiagnosticPage.Text(summary.Text)), clock);
         }
         catch (HttpResourceLockedException ex)
         {

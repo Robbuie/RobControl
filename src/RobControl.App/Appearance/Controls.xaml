@@ -1195,12 +1195,13 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- The family mark: an accent square, like File Manager's. -->
+                <!-- The family mark: an accent square, like File Manager's, with this app's letter
+                     (NetControl's "N" was copied across with the appearance system and stayed until 0.7.2). -->
                 <Border Grid.Column="0" Width="22" Height="22" Margin="10,0,6,0"
                         VerticalAlignment="Center"
                         CornerRadius="{DynamicResource corner-sm}"
                         Background="{DynamicResource accent}">
-                  <TextBlock Text="N" FontWeight="Bold" FontSize="12" Foreground="#ffffff"
+                  <TextBlock Text="R" FontWeight="Bold" FontSize="12" Foreground="#ffffff"
                              HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
 

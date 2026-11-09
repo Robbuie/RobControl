@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.2 - ready for the next robot
+
+Built to make the next visit to a real controller answer the open questions in one go. Nothing new
+writes to a robot: the only new traffic is one TCP connect (and close) to the web port when FTP does
+not answer, and the capture's GETs of pages the controller's own index lists.
+
+- **Capture for support** (Robots menu): everything the selected robot says about itself, read-only,
+  into one folder and a zip under `Documents\RobControl\Captures` - every diagnostic page its index
+  lists, a few FTP files, two KCL `SHOW`s, its newest backup, its event log, and a report of what
+  RobControl made of each page. The command-line probe tool now does the same capture.
+- **"FTP did not answer" now says why.** When port 21 is silent, RobControl checks whether the web
+  server answers: if it does, the message says the robot is on the network and FTP is off or blocked,
+  and where to look on the pendant - instead of "check the robot is powered". A connection that opens
+  but never gets the FTP greeting is reported as the controller's FTP sessions being in use.
+- **Which way the web server answered** - first try, after a retry, or only as plain HTTP/1.0 - is
+  recorded in the event log for every Live page, on the Live status line when it was not the first
+  try, in the probe's result, and in every capture.
+- **Closing the window keeps RobControl running** in the notification area while a schedule is on,
+  trends are recording or a backup is running, so scheduled backups no longer stop when the window
+  closes. A finished scheduled backup shows a notification. **Robots > Exit** or the icon's menu ends it.
+- Registers read over the web (Trends, **Browse... > Read from robot**) and the probe's identity
+  now take the file out of the web server's HTML page first, as the I/O and Live readers already did.
+- The title-bar mark is **R**, not NetControl's N.
+
 ## 0.7.1 - Live tab against a real controller
 
 The Live tab was checked against a real R-30iB (V8.30) web server for the first time, and most of it

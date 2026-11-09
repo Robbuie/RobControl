@@ -148,14 +148,16 @@ public sealed class ControllerWebClient : IDisposable
         await Task.Delay(RetryPause, cancellationToken).ConfigureAwait(false);
         try
         {
-            return await SendOnceAsync(uri, path, cancellationToken).ConfigureAwait(false);
+            HttpExchange again = await SendOnceAsync(uri, path, cancellationToken).ConfigureAwait(false);
+            return again with { Via = HttpAttempt.AfterRetry };
         }
         catch (HttpRequestException second) when (IsDropped(second))
         {
             TraceDrop(path, "second try", second);
             try
             {
-                return await RawHttpGet.GetAsync(_address, _base.Port, path, _http.Timeout, cancellationToken).ConfigureAwait(false);
+                HttpExchange raw = await RawHttpGet.GetAsync(_address, _base.Port, path, _http.Timeout, cancellationToken).ConfigureAwait(false);
+                return raw with { Via = HttpAttempt.PlainHttp10 };
             }
             catch (Exception raw) when (raw is IOException or SocketException
                 || (raw is OperationCanceledException && !cancellationToken.IsCancellationRequested))

@@ -82,7 +82,8 @@ public static class LiveReader
             Programs = Ok("PRGSTATE.DG") is { } programs ? ProgramStateParser.Parse(programs) : ProgramStateReport.Empty,
             Position = Ok("CURPOS.DG") is { } position ? PositionParser.Parse(position) : [],
         };
-        string detail = string.Join('\n', files.Select(f => $"GET /MD/{f.FileName}: {f.Status}{(f.Message is null ? string.Empty : " - " + f.Message)}"));
+        string detail = string.Join('\n', files.Select(f =>
+            $"GET /MD/{f.FileName}: {f.Status}{(f.Via is { } via ? " (" + HttpExchange.Describe(via) + ")" : string.Empty)}{(f.Message is null ? string.Empty : " - " + f.Message)}"));
         if (files.All(f => f.Status is LiveFileStatus.Failed or LiveFileStatus.Locked))
         {
             events?.Warn(EventCategory.Http, robot, "Live read: " + snapshot.Summary, detail);
@@ -102,12 +103,12 @@ public static class LiveReader
             HttpExchange exchange = await web.GetDiagnosticFileAsync(file, cancellationToken).ConfigureAwait(false);
             if (exchange.StatusCode == 404)
             {
-                return new LiveFile(title, file, LiveFileStatus.NotAvailable, string.Empty, "This controller does not serve this page.");
+                return new LiveFile(title, file, LiveFileStatus.NotAvailable, string.Empty, "This controller does not serve this page.") { Via = exchange.Via };
             }
 
             return exchange.IsSuccess
-                ? new LiveFile(title, file, LiveFileStatus.Ok, DiagnosticPage.Text(exchange.Text), null)
-                : new LiveFile(title, file, LiveFileStatus.Failed, DiagnosticPage.Text(exchange.Text), $"HTTP {exchange.StatusCode}");
+                ? new LiveFile(title, file, LiveFileStatus.Ok, DiagnosticPage.Text(exchange.Text), null) { Via = exchange.Via }
+                : new LiveFile(title, file, LiveFileStatus.Failed, DiagnosticPage.Text(exchange.Text), $"HTTP {exchange.StatusCode}") { Via = exchange.Via };
         }
         catch (HttpResourceLockedException ex)
         {

@@ -116,7 +116,7 @@ Directory.Build.props / .targets   copied from NetControl, Product = RobControl
 .github/workflows/                 verify.yml on push, release.yml on a v* tag
 installer/RobControl.iss           Inno Setup, per-user. Its AppId GUID must never change.
 src/RobControl.Core/               engine - MUST NOT reference any UI assembly
-    Net/                           UnicastTarget (copied from NetControl), Ipv4Subnet
+    Net/                           UnicastTarget (copied from NetControl), Ipv4Subnet, PortCheck (connect + close)
     Robots/                        Robot - what the person typed
     Transports/Ftp/                FtpClient (read verbs only), reply reader, PASV, transcript
     Transports/Http/               ControllerWebClient - GET /MD/ files, KCL through the classifier
@@ -133,6 +133,8 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
                                    a system shows, robots a file names that the database lacks), BackupProfile
                                    (system/robot backup settings, resolved into BackupOptions)
     Live/                          LiveReader - the Live tab's GETs of diagnostic pages, kept verbatim
+    Capture/                       ControllerCapture (Phase 0 in the app and the probe tool: index-driven GETs,
+                                   FTP sample, KCL SHOWs, parser report, profile + zip), CaptureIndex (link filter)
     Help/                          MarkdownLite - the README/CHANGELOG subset, parsed for Help > Read me
     Insight/                       Read-only views over the archive: ProgramListingParser + CrossReference,
                                    BackupSearch, AlarmLogParser + AlarmHistory, SettingsWatch,
@@ -146,12 +148,12 @@ src/RobControl.App/                WPF front end - net10.0-windows
     Diagnostics/                   build stamp and the updater, copied from NetControl
     ViewModels/                    all UI logic, free of WPF types; Search/Alarms/Fleet tabs read a
                                    FleetContext snapshot of the open site
-    Views/                         MainWindow, SystemPickerWindow (first window), BackupChoiceWindow (devices
+    Views/                         MainWindow (+ TrayIcon/TrayNative: Win32 notification icon), SystemPickerWindow (first window), BackupChoiceWindow (devices
                                    per backup), SystemWindow, RobotWindow, SiteWindow, DocumentWindow + MarkdownRenderer
                                    (Help > Read me / What's new), TrendChart (hand-drawn), Appearance/Update
 src/RobControl.RobotSim/           fake controller (FTP + HTTP) serving a profile folder; records
                                    every command and refuses - and lists - anything not a read
-tools/RobControl.Probe/            Phase 0 capture tool: one real robot, read-only, into a profile
+tools/RobControl.Probe/            Phase 0 capture tool: a thin wrapper over Core's ControllerCapture
 tools/icon.py                      redraws the icon (committed output)
 tests/RobControl.Tests/            xUnit, against robotsim on loopback
 tests/Fixtures/                    controller profiles - synthetic now, real captures to come
@@ -284,6 +286,15 @@ reason written down, not a feature request.
 - **One connection per robot at a time, gentle by default.** Controller FTP and web servers are
   small. Backups across the fleet run with a low concurrency limit; trend polling has a minimum
   interval per robot. Faster is opt-in and labelled.
+- **When FTP is silent, one look at the web port** (`FtpReachability`, `PortCheck`): a TCP connect
+  and close to the robot's own HTTP port, nothing sent on it, so the message can say "on the network,
+  FTP off or filtered" instead of "check the power". Same address, same unicast check, logged in the
+  transcript.
+- **A capture follows the controller's own index, it does not crawl.** `CaptureIndex` keeps only plain
+  file names under `/MD/` with a listing extension (`.DG .LS .VA .TXT .DT`) and `INDEX*.HTM` one level
+  deep; never `/KAREL/`, `/KCL/`, another device, a query string or another host. Capped at
+  `PageLimit` (80), one request at a time, `Pause` (250 ms) between them, refused while the robot is
+  recording.
 - **Every probe goes to one address the person named or listed.** No broadcast, multicast or subnet
   sweep from RobControl - discovery is NetControl's job. Check with a `UnicastTarget` equivalent
   before the first packet.
@@ -321,7 +332,9 @@ Excerpts in `tests/Fixtures/excerpt-r30ib-v830-repairtool/`.
   packet capture). 0.7.1 sends `Connection: close` and `Accept`, retries once, then falls back to a
   hand-written HTTP/1.0 GET (`RawHttpGet`). **Confirm on the next visit which of the three answers.**
 - **FTP on 21 did not answer** on the same robot (backup: "Nothing answered ... within 5 s") while
-  ping and HTTP did - FTP server disabled, or filtered. Not yet looked into.
+  ping and HTTP did - FTP server disabled, or filtered. Not yet looked into. Since 0.7.2 the message
+  checks the web port and says this case by name; **next visit: look at Setup > Host Comm > [SHOW] >
+  Servers on that pendant** and record what it shows.
 - `PRGSTATE.DG`: `TASK STATES:` then per task `9     SWAXTSK1 RUNNING @ 874 in PROCESSAMR of SWAXTCMN`
   or `2     DGMONFRC status = ABORTED`, then `******  History Data  ******` with
   `Routine depth: n  Routine: X` / `Line: n  Program: Y  Type: PC` pairs (deepest first). Then
@@ -357,6 +370,11 @@ exactly what a real controller does instead.
   I/O or CIP Safety is not known - `IoStateParser` takes any `TYPE[n] value`, so it will show if it
   is there. Check on the first CIP Safety robot; if it is not, find the page that has it. `LiveReader` keeps them verbatim and only
   the alarm and I/O parsers (which search) read into them. The probe tool now fetches `ERRACT.LS` too.
+- The pendant path for the FTP server tags is **Setup > Host Comm > [SHOW] > Servers** (tags S1...,
+  state STARTED/UNDEFINED), and a controller with every FTP tag in use accepts the TCP connection but
+  never greets (`FtpConnectFailure.NoGreeting`). Both are from memory of the manuals, not seen.
+- `/MD/INDEX_ER.HTM` and the home page link files as `/MD/NAME.EXT` or bare `NAME.EXT`; other
+  `INDEX_*.HTM` pages may exist. `CaptureIndex` copes with either form - confirm in a capture.
 - `CWD md:` selects the device; `NLST` lists bare names (the sim can also prefix them with `md:` -
   `SimProfile.NlstWithDevicePrefix` - and `ArchiveNames.StripDevice` copes either way).
 - Passive mode works. Active mode is not built; `PassiveEndpoint` says so if PASV is refused.
@@ -544,7 +562,29 @@ answering, and KCL locked; the sample tables were checked with Python's sqlite3 
 - The tests found one real bug on the way: `SET VAR $DCSS_CPC[1].$ENABLE` was classified as a plain
   write, because the program-prefix strip cut at the array index's `]`. Fixed, and the cases stay.
 
+**0.7.2 - ready for the next robot.** Capture for support (Core/Capture, Robots menu, the probe tool
+rewritten over it); FTP silence explained by a web-port check; `HttpExchange.Via` (first try / after a
+retry / plain HTTP/1.0) in the event log, the Live status and captures; the window closes to the
+notification area while something runs in the background (`MainViewModel.BackgroundWork`,
+`TrayIcon` - plain Win32, no WinForms); registers and the probe's summary unwrapped from the web
+server's HTML; title mark "R". Written in a session with the .NET 10 SDK and no NuGet, as before:
+Core, RobotSim, the probe tool and the suite (~395 cases, new: `FtpReachabilityTests`,
+`ControllerCaptureTests`, `WrappedPageTests`) built under warnings-as-errors against the stand-ins and
+passed; the view models compiled with `System.IO` removed; `TrayIcon`/`TrayNative` compiled on their
+own (they use no WPF type). **`MainWindow.xaml.cs` (OnClosing, tray wiring) and the two new menu
+items compile only in CI.**
+
 ### Pick up here
+
+- **Next robot visit (0.7.2):** run **Capture for support** on it first and bring the zip back. Then
+  read `report.txt`: every zero is a parser to fix against the page beside it. Check the event log for
+  which way the web server answered (`first try` / `after a retry` / `plain HTTP/1.0`) and record it
+  under *Controller gotchas*. If FTP is silent, the message now says whether the web port answered -
+  look at Setup > Host Comm > [SHOW] > Servers and write down what it shows. Commit the capture under
+  `tests/Fixtures/<generation>-<version>-<app>/` after reading it for confidential names.
+- **Tray:** check on Windows that closing with a schedule on hides to the tray, the first-time
+  notification appears, click/double-click restores, right-click > Exit ends, and logging off is not
+  blocked.
 
 0. **Push 0.6.0 and read the `verify` run** - the first compile of 0.4.0-0.6.0's XAML. Then run it
    once on a PC with a 0.5.0 profile: the picker should show each old site with no systems, opening

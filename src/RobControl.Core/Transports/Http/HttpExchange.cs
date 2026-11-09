@@ -8,6 +8,19 @@ public sealed record HttpExchange(string Path, int StatusCode, string? ContentTy
 {
     public bool IsSuccess => StatusCode is >= 200 and < 300;
 
+    /// <summary>Which way of asking got this answer - see <see cref="HttpAttempt"/>.</summary>
+    public HttpAttempt Via { get; init; } = HttpAttempt.FirstTry;
+
+    /// <summary>"first try", "after a retry", "only as plain HTTP/1.0" - for messages and the event log.</summary>
+    public string ViaText => Describe(Via);
+
+    public static string Describe(HttpAttempt via) => via switch
+    {
+        HttpAttempt.AfterRetry => "after a retry",
+        HttpAttempt.PlainHttp10 => "only as plain HTTP/1.0",
+        _ => "first try",
+    };
+
     /// <summary>The server's <c>Date</c> header, when it sent one - its clock, to the second.</summary>
     public DateTimeOffset? ServerDate { get; init; }
 

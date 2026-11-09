@@ -51,7 +51,7 @@ public static partial class SignalCatalog
             return result;
         }
 
-        foreach (Match match in RegisterLine().Matches(text))
+        foreach (Match match in RegisterLine().Matches(Transports.Http.DiagnosticPage.Text(text)))
         {
             if (!int.TryParse(match.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int n)
                 || !SignalAddress.TryParse($"R[{n}]", out SignalAddress? address, out _))

@@ -6,7 +6,12 @@ Each folder is a **controller profile**: what `robotsim` serves and what the tes
 <profile>/profile.json   banner, login rules, which HTTP resources are locked
 <profile>/kcl.json       KCL command -> the HTML page the controller answers with
 <profile>/MD/ ...        files on md:  (FR/, MC/ for other devices)
+<profile>/home.htm       optional: the web server's home page, served at /
 ```
+
+A capture from **Robots > Capture for support** in the app is the same shape, plus `report.txt`,
+`capture.json`, `_raw/` (every reply byte for byte, with its status, timing and which way of asking
+answered) and, when asked for, `backup/` and `events.csv`.
 
 ## synthetic-*
 

@@ -80,7 +80,24 @@ public sealed class FtpClient : IAsyncDisposable
                 .ConfigureAwait(false);
 
             var client = new FtpClient(tcp, host, options, transcript);
-            client.Banner = await client.ReadReplyAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                client.Banner = await client.ReadReplyAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is FtpTimeoutException or FtpProtocolException)
+            {
+                // The port opened but the server said nothing, or hung up straight away. On a FANUC
+                // controller each FTP server tag serves one session, so this is most likely every tag
+                // being held by another client - not a busy listing, which is what the generic
+                // timeout message would suggest.
+                await client.DisposeAsync().ConfigureAwait(false);
+                throw new FtpConnectException(
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{host} accepted the connection on port {port} but its FTP server never said hello ({ex.Message.TrimEnd('.')})."),
+                    "Another FTP client - another laptop, a cell PC or a backup job - may be holding every FTP session the "
+                        + "controller allows. Try again in a minute; on the pendant, Setup > Host Comm > [SHOW] > Servers shows the FTP server tags.",
+                    FtpConnectFailure.NoGreeting);
+            }
             if (!client.Banner.IsCompletion)
             {
                 await client.DisposeAsync().ConfigureAwait(false);
@@ -406,14 +423,16 @@ public sealed class FtpClient : IAsyncDisposable
         {
             throw new FtpConnectException(
                 $"Nothing answered at {endpoint} within {timeout.TotalSeconds:0} s.",
-                "Check the robot is powered and on this network. Diagnose network opens NetControl on it.");
+                "Check the robot is powered and on this network. Diagnose network opens NetControl on it.",
+                FtpConnectFailure.NoAnswer);
         }
         catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused)
         {
             throw new FtpConnectException(
                 $"{endpoint} refused the connection - the address answers, but nothing is listening on port {endpoint.Port}.",
                 "The FTP server may be disabled on this controller (Setup > Host Comm > Servers), or the address "
-                    + "belongs to something that is not a robot.");
+                    + "belongs to something that is not a robot.",
+                FtpConnectFailure.Refused);
         }
     }
 }

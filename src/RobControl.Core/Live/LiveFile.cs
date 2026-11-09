@@ -23,4 +23,7 @@ public sealed record LiveFile(string Title, string FileName, LiveFileStatus Stat
 
     /// <summary>Failed without an HTTP answer at all - refused, reset, timed out.</summary>
     public bool Unreachable { get; init; }
+
+    /// <summary>Which way of asking got the answer; null when nothing answered.</summary>
+    public Transports.Http.HttpAttempt? Via { get; init; }
 }
