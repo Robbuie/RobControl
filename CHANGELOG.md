@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3 - Live I/O says why it is empty
+
+- **Live > I/O says why it shows only the stop signals.** When the I/O page (`IOSTATE.DG`) did not
+  arrive or nothing in it was recognised, the count line now gives the reason (timed out, connection
+  dropped, HTTP error) instead of quietly listing just the stop signals.
+
 ## 0.7.2 - ready for the next robot
 
 Built to make the next visit to a real controller answer the open questions in one go. Nothing new

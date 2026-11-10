@@ -415,9 +415,15 @@ public sealed class LiveViewModel : ObservableObject, IDisposable
                     || r.Comment.Contains(filter, StringComparison.OrdinalIgnoreCase))),
         ];
         Io = shown;
+
+        // The stop signals come from a different page, so a list that has only them still means
+        // IOSTATE.DG gave nothing - say why, or the person sees a few stop signals and no hint that
+        // the I/O page failed (seen on the first real read, November 2026).
+        string reason = _snapshot is { IoPoints.Count: 0 } ? NoIoReason() : string.Empty;
         IoCount = _allIo.Count == 0
-            ? (_snapshot is null ? string.Empty : NoIoReason())
-            : string.Create(CultureInfo.CurrentCulture, $"Showing {shown.Count:N0} of {_allIo.Count:N0}");
+            ? reason
+            : string.Create(CultureInfo.CurrentCulture, $"Showing {shown.Count:N0} of {_allIo.Count:N0}")
+                + (reason.Length == 0 ? string.Empty : " - only the stop signals. " + reason);
     }
 
     private string NoIoReason() => _snapshot?.File(RobotSampler.IoFile) switch
