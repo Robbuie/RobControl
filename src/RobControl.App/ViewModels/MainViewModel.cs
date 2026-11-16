@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Globalization;
 // UseWPF drops System.IO from the implicit usings; IOException and Directory are used below.
@@ -12,11 +13,15 @@ using RobControl.Core.Capture;
 using RobControl.Core.Controllers;
 using RobControl.Core.Diagnostics;
 using RobControl.Core.Events;
+using RobControl.Core.History;
+using RobControl.Core.Insight;
+using RobControl.Core.Live;
 using RobControl.Core.Persistence;
 using RobControl.Core.Robots;
 using RobControl.Core.Sites;
 using RobControl.Core.Systems;
 using RobControl.Core.Trending;
+using RobControl.Core.Transports.Http;
 
 namespace RobControl.App.ViewModels;
 
@@ -59,6 +64,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TrendRecorder _recorder;
     private IReadOnlyList<RobotRowViewModel> _selectedRobots = [];
 
+    // Each robot's clock against this PC's, as last seen this session (probe, site visit, alarm log read).
+    // For the cell timeline and alarm snapshots; by name, as alarm entries carry it.
+    private readonly ConcurrentDictionary<string, TimeSpan> _clocks = new(StringComparer.OrdinalIgnoreCase);
+
     public MainViewModel(
         IUiDispatcher ui, FleetStore store, Site site, RobotSystem system, ISiteHost sites, string tool, ITraceLog? trace = null, TrendRecorder? recorder = null)
     {
@@ -72,11 +81,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _trace = trace ?? NullTraceLog.Instance;
         _archive = new BackupArchive(_settings.ArchiveRoot);
         _recorder = recorder ?? new TrendRecorder(store, store);
-        Trend = new TrendViewModel(ui, store, _recorder, () => Targets, () => _archive);
+        Trend = new TrendViewModel(ui, store, _recorder, () => Targets, () => _archive, AlarmWatchFor);
         Search = new SearchViewModel(Snapshot);
         Alarms = new AlarmsViewModel(Snapshot);
+        Timeline = new AlarmTimelineViewModel(Snapshot, () => new Dictionary<string, TimeSpan>(_clocks, StringComparer.OrdinalIgnoreCase), ReadAlarmLogsAsync);
+        Snapshots = new SnapshotsViewModel(SnapshotFolder);
         Fleet = new FleetViewModel(Snapshot);
-        Live = new LiveViewModel(ui, store, () => Selected, _recorder.IsRecording);
+        Live = new LiveViewModel(ui, store, () => Selected, _recorder.IsRecording, (row, program) => BackupListings.Find(_archive, row.Robot, program));
 
         AddRobotCommand = new RelayCommand(AddRobot);
         EditRobotCommand = new RelayCommand(EditRobot, () => Selected is { IsBusy: false });
@@ -105,13 +116,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ChooseSystemCommand = new RelayCommand(ChooseSystem);
         EditSystemCommand = new RelayCommand(EditSystem, () => !_system.IsUnassigned);
         OpenSystemFolderCommand = new RelayCommand(() => OpenFolder?.Invoke(_system.IsUnassigned ? _site.ConfigFolder : _system.Folder));
+        SiteVisitCommand = new AsyncRelayCommand(SiteVisitAsync, () => Robots.Count > 0 && !IsBusy);
+        WhatChangedCommand = new AsyncRelayCommand(WhatChangedAsync, () => Robots.Count > 0);
+        OpenLooseCommand = new RelayCommand(OpenLoose);
 
         _store.EventRecorded += OnEventRecorded;
+        _recorder.SnapshotTaken += OnSnapshotTaken;
         LoadRobots();
         ReloadEvents();
         Trend.Reload();
         ReloadSites();
         ReloadSystems();
+        Snapshots.Refresh();
     }
 
     // ------------------------------------------------------------------ the view's delegates
@@ -152,6 +168,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public Func<string, string?>? PickFolder { get; set; }
 
     public Action<string>? OpenFolder { get; set; }
+
+    /// <summary>Shows a Markdown document in a window of its own: title, text. For What changed and the visit report.</summary>
+    public Action<string, string>? ShowReport { get; set; }
+
+    /// <summary>Opens a window on backups from a folder, beside this one.</summary>
+    public Action<LooseViewModel>? OpenLooseWindow { get; set; }
 
     /// <summary>Raised when a comparison has been built, so the view can bring its tab forward.</summary>
     public event EventHandler? CompareOpened;
@@ -219,6 +241,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>The Alarms tab - alarm history from this site's backups.</summary>
     public AlarmsViewModel Alarms { get; }
+
+    /// <summary>Alarms > Cell timeline - every robot's alarms on one time axis.</summary>
+    public AlarmTimelineViewModel Timeline { get; }
+
+    /// <summary>Alarms > Snapshots - the state saved when a new alarm appeared during recording.</summary>
+    public SnapshotsViewModel Snapshots { get; }
 
     /// <summary>The Fleet tab - inventory, watched setting changes, the site report.</summary>
     public FleetViewModel Fleet { get; }
@@ -416,6 +444,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>The open system's folder - its system.json - in Explorer.</summary>
     public IRelayCommand OpenSystemFolderCommand { get; }
 
+    /// <summary>System > Site visit: every robot of the system in turn - probe, back up, capture - then one report and zip.</summary>
+    public IAsyncRelayCommand SiteVisitCommand { get; }
+
+    /// <summary>Backup > What changed: each robot's newest complete backup against the one before it.</summary>
+    public IAsyncRelayCommand WhatChangedCommand { get; }
+
+    /// <summary>Site > Open backups from a folder: a stick or a share, no site needed.</summary>
+    public IRelayCommand OpenLooseCommand { get; }
+
     /// <summary>Puts a sentence in the status bar - for things the host has to say at startup.</summary>
     public void ReportStatus(string message) => Status = message;
 
@@ -517,7 +554,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _store.EventRecorded -= OnEventRecorded;
+        _recorder.SnapshotTaken -= OnSnapshotTaken;
         Search.Cancel();
+        Timeline.Cancel();
         Alarms.Cancel();
         Fleet.Cancel();
         Trend.Dispose();
@@ -709,6 +748,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     row.Activity = "Probing...";
                     ProbeReport report = await Task.Run(() => probe.RunAsync(row.Robot, token), token).ConfigureAwait(true);
                     _store.SaveProbe(report);
+                    NoteClock(row.Robot, report.Clock);
                     row.ApplyProbe(report.Identity, report.Utc, report.Summary, report.Steps);
                     Status = string.Create(CultureInfo.CurrentCulture, $"Probed {++done} of {rows.Count}: {row.Name} - {report.Summary}");
                 }
@@ -854,13 +894,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 RefreshBackups(row);
             }
 
+            End();
             if (!ask)
             {
-                BackgroundNotice?.Invoke(this, string.Create(CultureInfo.CurrentCulture,
-                    $"Scheduled backup of {_system.Name}: {complete} of {todo.Count} robot(s) complete."));
+                await ReportScheduledChangesAsync(todo, complete).ConfigureAwait(true);
             }
-
-            End();
         }
     }
 
@@ -1559,6 +1597,260 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ------------------------------------------------------------------ site visit, what changed, loose backups
+
+    private string VisitFolder() => CaptureFolder();
+
+    /// <summary>
+    /// Every robot of this system in turn: probe, back up, capture for support - then one report and one
+    /// zip. Read-only, the same traffic as the three menu items, one robot at a time.
+    /// </summary>
+    private async Task SiteVisitAsync()
+    {
+        List<RobotRowViewModel> rows = [.. Robots];
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        int recording = rows.Count(r => _recorder.IsRecording(r.Robot.Id));
+        string question = string.Create(CultureInfo.CurrentCulture, $"Site visit of {_site.Name} / {_system.Name}: {rows.Count} robot(s), one after another.\n\n")
+            + "For each robot: probe it, back it up (each robot's own devices, as a scheduled backup would), then capture it for support - "
+            + "its diagnostic pages, two KCL SHOW commands, the new backup and its event log. Read-only: nothing is written to a robot.\n\n"
+            + "A robot whose FTP does not answer is not backed up; one that does not answer at all is not captured. "
+            + (recording > 0 ? string.Create(CultureInfo.CurrentCulture, $"{recording} robot(s) recording trends are left out - stop recording to include them. ") : string.Empty)
+            + $"\n\nThe report and one zip go to {VisitFolder()}. A few minutes per robot. Start?";
+        if (Confirm?.Invoke(question) != true)
+        {
+            return;
+        }
+
+        CancellationToken token = Begin();
+        Dictionary<long, RobotRowViewModel> byId = rows.ToDictionary(r => r.Robot.Id);
+        foreach (RobotRowViewModel row in rows.Where(r => !_recorder.IsRecording(r.Robot.Id)))
+        {
+            row.IsBusy = true;
+            row.Activity = "Visit: waiting...";
+        }
+
+        RaiseCanExecute();
+        var options = new SiteVisitOptions
+        {
+            Title = $"{_site.Name} - {_system.Name}",
+            Tool = _tool,
+            Archive = _archive,
+            BackupOptionsFor = OptionsFor,
+            Skip = robot => _recorder.IsRecording(robot.Id) ? "recording trends - stop recording to include it" : null,
+            IgnoreChanges = _settings.IgnorePatterns,
+            Probed = (robot, report) =>
+            {
+                _store.SaveProbe(report);
+                NoteClock(robot, report.Clock);
+                _ui.Post(() => byId[robot.Id].ApplyProbe(report.Identity, report.Utc, report.Summary, report.Steps));
+            },
+            BackedUp = (robot, _) => _ui.Post(() => RefreshBackups(byId[robot.Id])),
+            Activity = (robot, activity) => _ui.Post(() => byId[robot.Id].Activity = activity ?? "Visit: done"),
+            EventLog = robot =>
+            {
+                try
+                {
+                    return EventLogCsv.ToCsv(_store.RecentEvents(int.MaxValue, robot));
+                }
+                catch (Exception ex) when (ex is RobControlException or InvalidOperationException or System.Data.Common.DbException)
+                {
+                    return null;
+                }
+            },
+        };
+
+        try
+        {
+            var progress = new Progress<string>(line => Status = line);
+            string parent = VisitFolder();
+            VisitResult result = await Task.Run(() => SiteVisit.RunAsync([.. rows.Select(r => r.Robot)], parent, options, progress, _store, token), token)
+                .ConfigureAwait(true);
+            Status = $"Site visit: {result.Summary}. Saved as {result.ZipPath ?? result.Folder}";
+            ShowReport?.Invoke($"Site visit - {_site.Name} / {_system.Name}", result.Report);
+            if (Confirm?.Invoke($"Site visit done: {result.Summary}.\n\nSaved as {result.ZipPath ?? result.Folder}\n\nRead the captures' report.txt for site-confidential names before sending the zip on. Open the folder now?") == true)
+            {
+                OpenFolder?.Invoke(parent);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Status = "Site visit stopped. Any backup cut short is marked INCOMPLETE.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or RobControlException)
+        {
+            ShowMessage?.Invoke($"The site visit could not be written to {VisitFolder()}: {ex.Message}");
+        }
+        finally
+        {
+            foreach (RobotRowViewModel row in rows)
+            {
+                if (!_recorder.IsRecording(row.Robot.Id))
+                {
+                    row.IsBusy = false;
+                    row.Activity = null;
+                }
+
+                RefreshBackups(row);
+            }
+
+            End();
+        }
+    }
+
+    /// <summary>Each robot's newest complete backup against the one before it, as a document.</summary>
+    private async Task WhatChangedAsync()
+    {
+        List<Robot> robots = [.. Robots.Select(r => r.Robot)];
+        Status = "Comparing each robot's two newest complete backups...";
+        BackupArchive archive = _archive;
+        IReadOnlyList<string> ignore = _settings.IgnorePatterns;
+        IReadOnlyList<RobotChanges> changes = await Task.Run(() => ChangeReport.ForRobots(archive, robots, ignore)).ConfigureAwait(true);
+        Status = ChangeReport.Headline(changes);
+        ShowReport?.Invoke($"What changed - {_site.Name} / {_system.Name}",
+            ChangeReport.ToMarkdown($"{_site.Name} / {_system.Name}", changes, DateTimeOffset.UtcNow, _tool));
+    }
+
+    /// <summary>After a scheduled backup: what changed, in the notification, the status bar and the event log.</summary>
+    private async Task ReportScheduledChangesAsync(IReadOnlyList<RobotRowViewModel> rows, int complete)
+    {
+        string headline;
+        try
+        {
+            List<Robot> robots = [.. rows.Select(r => r.Robot)];
+            BackupArchive archive = _archive;
+            IReadOnlyList<string> ignore = _settings.IgnorePatterns;
+            IReadOnlyList<RobotChanges> changes = await Task.Run(() => ChangeReport.ForRobots(archive, robots, ignore)).ConfigureAwait(true);
+            headline = ChangeReport.Headline(changes);
+            string detail = string.Join('\n', changes.Where(c => c.HasRealChanges)
+                .Select(c => $"{c.Robot}: " + string.Join(", ", c.Real.Select(f => $"{f.Path} {f.Describe()}"))));
+            if (changes.Any(c => c.HasRealChanges))
+            {
+                _store.Warn(EventCategory.Backup, null, "What changed: " + headline, detail);
+            }
+            else
+            {
+                _store.Info(EventCategory.Backup, null, "What changed: " + headline);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BackupArchiveException)
+        {
+            headline = $"What changed could not be worked out: {ex.Message}";
+        }
+
+        Status = headline + " Backup > What changed for the details.";
+        BackgroundNotice?.Invoke(this, string.Create(CultureInfo.CurrentCulture,
+            $"Scheduled backup of {_system.Name}: {complete} of {rows.Count} robot(s) complete. {headline}"));
+    }
+
+    private void OpenLoose()
+    {
+        string? folder = PickFolder?.Invoke(_archive.Root);
+        if (folder is null)
+        {
+            return;
+        }
+
+        try
+        {
+            OpenLooseWindow?.Invoke(new LooseViewModel(LooseArchive.Open(folder), _tool));
+        }
+        catch (Exception ex) when (ex is BackupArchiveException or IOException or UnauthorizedAccessException)
+        {
+            ShowMessage?.Invoke(ex.Message);
+        }
+    }
+
+    // ------------------------------------------------------------------ alarms: clocks, timeline, snapshots
+
+    private void NoteClock(Robot robot, ClockReading? clock)
+    {
+        if (clock is not null)
+        {
+            _clocks[robot.Name] = clock.Skew;
+        }
+    }
+
+    private string SnapshotFolder() => Path.Combine(AppPaths.Snapshots, _site.Key);
+
+    /// <summary>What a recording with alarm snapshots needs for one robot: the folder, its listings, its clock.</summary>
+    private AlarmWatchOptions AlarmWatchFor(Robot robot)
+    {
+        BackupArchive archive = _archive;
+        Directory.CreateDirectory(SnapshotFolder());
+        return new AlarmWatchOptions(SnapshotFolder())
+        {
+            Listing = program => BackupListings.Find(archive, robot, program),
+            ClockNote = () => _clocks.TryGetValue(robot.Name, out TimeSpan skew)
+                ? new ClockReading(skew, false).Describe() + " (as last seen this session)"
+                : null,
+        };
+    }
+
+    private void OnSnapshotTaken(object? sender, AlarmSnapshot snapshot) => _ui.Post(() =>
+    {
+        Snapshots.Refresh();
+        BackgroundNotice?.Invoke(this, $"{snapshot.Robot}: {snapshot.AlarmsText}. Snapshot saved - Alarms > Snapshots.");
+        Status = $"Alarm snapshot of {snapshot.Robot}: {snapshot.AlarmsText} - {snapshot.Summary}.";
+    });
+
+    /// <summary>
+    /// The cell timeline's Read robots now: each robot's alarm log, one robot at a time, GET only - and its
+    /// clock from the web server's Date header. Busy and recording robots are left out.
+    /// </summary>
+    private async Task<IReadOnlyList<AlarmEntry>> ReadAlarmLogsAsync(IProgress<string> progress, CancellationToken token)
+    {
+        List<RobotRowViewModel> rows = [.. Robots.Where(r => !r.IsBusy && !_recorder.IsRecording(r.Robot.Id))];
+        int left = Robots.Count - rows.Count;
+        var all = new List<AlarmEntry>();
+        int read = 0;
+        foreach (RobotRowViewModel row in rows)
+        {
+            token.ThrowIfCancellationRequested();
+            row.IsBusy = true;
+            row.Activity = "Reading alarm log...";
+            RaiseCanExecute();
+            progress.Report(string.Create(CultureInfo.CurrentCulture, $"Reading {row.Name}'s alarm log ({read + 1} of {rows.Count})..."));
+            try
+            {
+                using var web = new ControllerWebClient(row.Robot.Address, row.Robot.HttpPort, timeout: TimeSpan.FromSeconds(20));
+                HttpExchange page = await Task.Run(() => web.GetDiagnosticFileAsync("ERRALL.LS", token), token).ConfigureAwait(true);
+                if (page.ServerDate is { } date)
+                {
+                    NoteClock(row.Robot, ClockReading.Compare(date, page.ReceivedUtc));
+                }
+
+                if (page.IsSuccess)
+                {
+                    IReadOnlyList<AlarmEntry> entries = AlarmLogParser.Parse(row.Robot.Name, DiagnosticPage.Text(page.Text).Split('\n'));
+                    all.AddRange(entries);
+                    read++;
+                    _store.Info(EventCategory.Http, row.Robot, string.Create(CultureInfo.InvariantCulture, $"Alarm log read for the cell timeline: {entries.Count} alarms."), "GET /MD/ERRALL.LS");
+                }
+                else
+                {
+                    _store.Warn(EventCategory.Http, row.Robot, string.Create(CultureInfo.InvariantCulture, $"Alarm log for the cell timeline: HTTP {page.StatusCode}."), "GET /MD/ERRALL.LS");
+                }
+            }
+            catch (RobControlException ex)
+            {
+                _store.Warn(EventCategory.Http, row.Robot, $"Alarm log for the cell timeline not read: {ex.Message}", "GET /MD/ERRALL.LS");
+            }
+            finally
+            {
+                row.IsBusy = false;
+                row.Activity = null;
+                RaiseCanExecute();
+            }
+        }
+
+        progress.Report(string.Create(CultureInfo.CurrentCulture, $"Read {read} of {rows.Count} robot(s)' alarm logs{(left > 0 ? $"; {left} busy or recording, left out" : string.Empty)}."));
+        return all;
+    }
+
     private string RobotFolderOrRoot()
     {
         string folder = Selected is { } row ? _archive.RobotFolder(row.Robot) : _archive.Root;
@@ -1630,6 +1922,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CompareCommand.NotifyCanExecuteChanged();
         DiagnoseNetworkCommand.NotifyCanExecuteChanged();
         CaptureCommand.NotifyCanExecuteChanged();
+        SiteVisitCommand.NotifyCanExecuteChanged();
+        WhatChangedCommand.NotifyCanExecuteChanged();
         ImportSiteCommand.NotifyCanExecuteChanged();
         ExportBundleCommand.NotifyCanExecuteChanged();
         Live.RaiseCanExecute();

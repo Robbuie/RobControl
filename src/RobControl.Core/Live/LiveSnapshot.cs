@@ -21,6 +21,9 @@ public sealed record LiveSnapshot(
 
     public IReadOnlyList<PositionFrame> Position { get; init; } = [];
 
+    /// <summary>The Ethernet page's counters and the EtherNet/IP log.</summary>
+    public NetworkHealthReport Network { get; init; } = NetworkHealthReport.Empty;
+
     /// <summary>"4 of 6 pages read" - for the status line and the event log.</summary>
     public string Summary
     {

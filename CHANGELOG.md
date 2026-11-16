@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.8.0 - what changed, site visit, why stopped, cell timeline
+
+Debugging a working cell, and the visit that comes before it. Still read-only: nothing new writes to a
+robot. The new traffic is one GET of the active-alarm page every 10 s on a robot being recorded with
+**Snapshot on new alarm** on, the Live read when a new alarm appears, two more pages in every Live
+read (Ethernet, EtherNet/IP log), and one GET of the alarm log per robot when **Read robots now** is
+pressed on the cell timeline.
+
+- **What changed** (Backup menu and toolbar): each robot's newest complete backup against the one
+  before it - programs and setting files changed, added or removed, the changed program lines quoted,
+  and **DCS (safety) files called out**. Diagnostic snapshots, alarm logs and register files do not
+  count as changes; **Site settings > Not a change** adds more. **Save as** keeps the page as Markdown.
+  After a scheduled backup the result is in the notification, the status bar and the event log.
+- **Site visit** (System menu and toolbar): every robot of the open system in turn - probe, back up,
+  capture for support with the new backup inside - then one report and one zip. A robot whose FTP does
+  not answer is not backed up; one that does not answer at all is not captured.
+- **Backups from a folder** (Site menu, and on the opening picker): open backups from a stick, a
+  share or another engineer's archive - the archive, one robot's folder or one backup - and browse,
+  compare, search, read alarm history and the cell timeline without making a site. Read-only.
+- **Live > Why stopped?**: why the robot would not run - active alarms, stop signals, the UOP inputs
+  and outputs that hold it (standard assignment, the controller's own comment shown when it differs),
+  paused tasks - worst first, with where to look. Below it, **where each task is waiting**: the line it
+  is at, from the newest backup's listing, with the live state of every I/O point on it, and a warning
+  when the program changed on the robot after that backup.
+- **Live > Network**: the Ethernet page's values and the EtherNet/IP log, with error counters above
+  zero, links down and fault lines flagged. Layouts not yet seen on a real controller.
+- **Alarms > Cell timeline**: every robot's alarms on one time axis, grouped into incidents, the
+  robot that went first named, each controller's clock offset taken out where it is known (probe, site
+  visit, **Read robots now**). **Only stops on more than one robot** shows cell stops alone.
+- **Alarm snapshots**: with **Snapshot on new alarm** ticked on the Trends tab, recording also watches
+  the active alarms and saves the Live pages the moment a new one appears - why it would not run, the
+  line each task was at, stop signals, UOP, outputs on, position - under
+  `Documents\RobControl\Snapshots`. At most one a minute per robot. **Alarms > Snapshots** lists them.
+  With no signals on a robot, **Start recording** only watches its alarms.
+- **Trends > Timing (I/O watch)**: each plotted digital signal's state now and how long it has held
+  it, flagged when far longer than that state lasted before; every change with how long the previous
+  state held. Good to one recording interval.
+- Captures now also fetch `EIPLOG.DG`.
+- Reports (What changed, a site visit, a snapshot) open in a document window with **Save as**.
+
 ## 0.7.3 - Live I/O says why it is empty
 
 - **Live > I/O says why it shows only the stop signals.** When the I/O page (`IOSTATE.DG`) did not

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using RobControl.App.Composition;
+using RobControl.App.Diagnostics;
 using RobControl.App.ViewModels;
 
 namespace RobControl.App.Views;
@@ -30,6 +31,9 @@ public partial class SystemPickerWindow : Window
     public SystemChoice? Choice { get; private set; }
 
     private void OnCancel(object sender, RoutedEventArgs e) => _viewModel.Cancel();
+
+    /// <summary>Backups from a folder, with no site: modal here, so the picker is still there when it closes.</summary>
+    private void OnOpenLoose(object sender, RoutedEventArgs e) => LooseWindow.Open(this, BuildInfo.Stamp())?.ShowDialog();
 
     private void OnSystemDoubleClick(object sender, MouseButtonEventArgs e)
     {

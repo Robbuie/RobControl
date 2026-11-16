@@ -29,6 +29,9 @@ public sealed record SiteDraft
     /// <summary>Complete backups per robot that Prune old backups keeps; 0 turns pruning off.</summary>
     public string KeepBackups { get; init; } = "0";
 
+    /// <summary>File name patterns What changed leaves out, separated by spaces.</summary>
+    public string IgnoreChanges { get; init; } = string.Empty;
+
     public string DefaultFtpUser { get; init; } = FtpCredentials.Default.User;
 
     public string DefaultFtpPassword { get; init; } = string.Empty;
@@ -46,6 +49,7 @@ public sealed record SiteDraft
             StaleAfterDays = settings.StaleAfterDays.ToString(CultureInfo.InvariantCulture),
             ScheduleRetries = settings.ScheduleRetries.ToString(CultureInfo.InvariantCulture),
             KeepBackups = settings.KeepBackups.ToString(CultureInfo.InvariantCulture),
+            IgnoreChanges = settings.IgnoreChanges,
             DefaultFtpUser = settings.DefaultFtpUser,
             DefaultFtpPassword = settings.DefaultFtpPassword,
             Notes = settings.Notes ?? string.Empty,
@@ -97,6 +101,13 @@ public sealed record SiteDraft
             return false;
         }
 
+        string[] ignore = IgnoreChanges.Split([' ', ',', ';', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (ignore.FirstOrDefault(p => p.IndexOfAny(['<', '>', '|', '"', ':']) >= 0) is { } bad)
+        {
+            problem = $"'{bad}' is not a file name pattern. Use names with * and ? only, like SYSTEM.VA or ACCNT*.LS.";
+            return false;
+        }
+
         settings = current with
         {
             Name = Name.Trim(),
@@ -105,6 +116,7 @@ public sealed record SiteDraft
             StaleAfterDays = stale,
             ScheduleRetries = retries,
             KeepBackups = keep,
+            IgnoreChanges = string.Join(" ", ignore),
             DefaultFtpUser = string.IsNullOrWhiteSpace(DefaultFtpUser) ? FtpCredentials.Default.User : DefaultFtpUser.Trim(),
             DefaultFtpPassword = DefaultFtpPassword,
             Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),

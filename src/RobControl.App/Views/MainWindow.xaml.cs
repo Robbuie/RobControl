@@ -79,6 +79,10 @@ public partial class MainWindow : Window
             old.Search.PickSaveFile = null;
             old.Search.ShowMessage = null;
             old.Fleet.RemoveFolder = null;
+            old.ShowReport = null;
+            old.OpenLooseWindow = null;
+            old.Snapshots.OpenFolder = null;
+            old.Snapshots.ShowReport = null;
         }
 
         if (e.NewValue is MainViewModel viewModel)
@@ -111,6 +115,10 @@ public partial class MainWindow : Window
             viewModel.Alarms.ShowMessage = viewModel.ShowMessage;
             viewModel.Search.PickSaveFile = PickSaveFile;
             viewModel.Search.ShowMessage = viewModel.ShowMessage;
+            viewModel.ShowReport = ShowReport;
+            viewModel.OpenLooseWindow = OpenLoose;
+            viewModel.Snapshots.OpenFolder = folder => Shell.Open(this, folder);
+            viewModel.Snapshots.ShowReport = ShowReport;
 
             // To the Recycle Bin, not gone: a prune of the wrong site can be put back from Explorer.
             viewModel.Fleet.RemoveFolder = folder => Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(
@@ -119,6 +127,17 @@ public partial class MainWindow : Window
                 Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
         }
     }
+
+    /// <summary>A report as a document beside the main window: What changed, a site visit, an alarm snapshot.</summary>
+    private void ShowReport(string title, string markdown)
+    {
+        DocumentWindow window = DocumentWindow.Report(title, markdown);
+        window.Owner = this;
+        window.Show();
+    }
+
+    /// <summary>Backups from a folder, in a window of their own beside this one.</summary>
+    private void OpenLoose(LooseViewModel loose) => new LooseWindow(loose) { Owner = this }.Show();
 
     private RobotDraft? ShowRobotDialog(RobotDraft draft)
     {
@@ -166,7 +185,7 @@ public partial class MainWindow : Window
 
     private string? PickFolder(string current)
     {
-        var dialog = new OpenFolderDialog { Title = "Archive folder for robot backups", Multiselect = false };
+        var dialog = new OpenFolderDialog { Title = "Choose a folder", Multiselect = false };
         if (Directory.Exists(current))
         {
             dialog.InitialDirectory = current;

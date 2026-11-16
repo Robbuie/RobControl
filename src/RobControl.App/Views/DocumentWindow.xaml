@@ -8,7 +8,8 @@
         WindowStartupLocation="CenterOwner"
         Style="{StaticResource ChromeWindow}">
 
-  <!-- Help > Read me and Help > What's new: the README or the changelog compiled into this build. -->
+  <!-- Help > Read me and Help > What's new: the README or the changelog compiled into this build.
+       Also the reports RobControl writes: What changed, a site visit, an alarm snapshot. -->
   <DockPanel>
     <Border DockPanel.Dock="Bottom" Background="{DynamicResource bg-1}" BorderBrush="{DynamicResource line}"
             BorderThickness="0,1,0,0" Padding="12,8">
@@ -16,7 +17,9 @@
         <TextBlock x:Name="SourceText" Style="{StaticResource Muted}" VerticalAlignment="Center"
                    TextTrimming="CharacterEllipsis" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-          <Button Content="Open on GitHub" Click="OnOpenOnline" Margin="0,0,8,0"
+          <Button x:Name="SaveButton" Content="Save as..." Click="OnSave" Margin="0,0,8,0" Visibility="Collapsed"
+                  ToolTip="Saves this report as a Markdown (.md) file - plain text that any editor opens." />
+          <Button x:Name="OnlineButton" Content="Open on GitHub" Click="OnOpenOnline" Margin="0,0,8,0"
                   ToolTip="The newest version of this page, which may describe a newer release than the one running." />
           <Button Content="Close" IsCancel="True" IsDefault="True" Click="OnClose" MinWidth="80" />
         </StackPanel>

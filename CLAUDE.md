@@ -123,22 +123,29 @@ src/RobControl.Core/               engine - MUST NOT reference any UI assembly
     Kcl/                           KclClassifier (read / write / never), page text extraction
     Controllers/                   ControllerIdentity + parser, ShowVarParser, CapabilityProbe
     Backup/                        BackupRunner, FleetBackup (retries), archive layout, manifest, name safety,
-                                   BackupVerifier (re-hash against the manifest), RetentionPlan (prune preview)
-    History/                       LineDiff (Myers), BackupComparer, TextSniffer
-    Trending/                      SignalAddress, register/IO parsers, RobotSampler, TrendRecorder
+                                   BackupVerifier (re-hash against the manifest), RetentionPlan (prune preview),
+                                   LooseArchive (backups opened from a folder, no site: archive / robot / one backup)
+    History/                       LineDiff (Myers), BackupComparer, TextSniffer, ChangeReport (What changed:
+                                   newest vs previous complete backup, ChangeKind Program/Setting/Values/Noise, DCS)
+    Trending/                      SignalAddress, register/IO parsers, RobotSampler, TrendRecorder (+ alarm watch),
+                                   SignalTransitions (Timing: changes, hold times, stuck)
     Events/                        IEventSink - how Core writes the record without knowing SQLite; EventLogCsv
     Sites/                         SiteSettings (site.json), SiteCatalog, export file (SiteFile/SiteRobot),
                                    SiteBundle + SiteBundleImport (whole site as a zip, imported as a new site)
     Systems/                       SystemSettings (system.json), SystemCatalog, SystemMembership (which robots
                                    a system shows, robots a file names that the database lacks), BackupProfile
                                    (system/robot backup settings, resolved into BackupOptions)
-    Live/                          LiveReader - the Live tab's GETs of diagnostic pages, kept verbatim
+    Live/                          LiveReader - the Live tab's GETs of diagnostic pages, kept verbatim; RunCheck (why
+                                   won't it run), WaitCheck (task line from the backup + live signals), NetworkHealth
+                                   (ETHERNET.DG / EIPLOG.DG), AlarmSnapshots (+ AlarmWatchOptions for the recorder)
     Capture/                       ControllerCapture (Phase 0 in the app and the probe tool: index-driven GETs,
-                                   FTP sample, KCL SHOWs, parser report, profile + zip), CaptureIndex (link filter)
+                                   FTP sample, KCL SHOWs, parser report, profile + zip), CaptureIndex (link filter),
+                                   SiteVisit (probe + backup + capture per robot in sequence, one report + zip)
     Help/                          MarkdownLite - the README/CHANGELOG subset, parsed for Help > Read me
     Insight/                       Read-only views over the archive: ProgramListingParser + CrossReference,
                                    BackupSearch, AlarmLogParser + AlarmHistory, SettingsWatch,
-                                   FleetInventory + BackupHealth, NetworkInventory, SiteReport (HTML), Csv
+                                   FleetInventory + BackupHealth, NetworkInventory, SiteReport (HTML), Csv,
+                                   AlarmTimeline (cell timeline, incidents, clock correction), BackupListings
     Persistence/                   FleetStore: robots, last probe, append-only Event, trend signals/samples
     Diagnostics/                   TraceLog (copied from NetControl)
 src/RobControl.App/                WPF front end - net10.0-windows
@@ -150,7 +157,10 @@ src/RobControl.App/                WPF front end - net10.0-windows
                                    FleetContext snapshot of the open site
     Views/                         MainWindow (+ TrayIcon/TrayNative: Win32 notification icon), SystemPickerWindow (first window), BackupChoiceWindow (devices
                                    per backup), SystemWindow, RobotWindow, SiteWindow, DocumentWindow + MarkdownRenderer
-                                   (Help > Read me / What's new), TrendChart (hand-drawn), Appearance/Update
+                                   (Help > Read me / What's new, and reports via DocumentWindow.Report), TrendChart
+                                   (hand-drawn), Appearance/Update, LooseWindow (backups from a folder), and the
+                                   panels shared by both windows: ChangesPanel, SearchPanel, AlarmHistoryPanel,
+                                   TimelinePanel (UserControls, DataContext set by the host)
 src/RobControl.RobotSim/           fake controller (FTP + HTTP) serving a profile folder; records
                                    every command and refuses - and lists - anything not a read
 tools/RobControl.Probe/            Phase 0 capture tool: a thin wrapper over Core's ControllerCapture
@@ -306,6 +316,11 @@ reason written down, not a feature request.
   it - a one-off "Read now" skips any robot that is recording rather than overlapping its loop -
   never faster than `TrendRecorder.MinimumInterval` (2 s), and backed off when a robot stops answering.
   The floor is only lowerable from tests (internal), not from the UI or settings.
+- **Alarm snapshots ride the recording's own loop and connection.** One GET of `ERRACT.LS` at most
+  every `AlarmWatchOptions.CheckEvery` (10 s); a new alarm costs one Live read; at most one snapshot per
+  `MinimumGap` (60 s) per robot. Never a second loop on a robot. Alarms active at start are the baseline.
+- **A site visit is sequential.** One robot at a time - probe, backup, capture - and a robot whose FTP
+  did not answer at the probe is not backed up; one where nothing answered is not captured.
 - **Every operation that transmits gets an event row** - backups, KCL reads, file fetches, polls
   (polls summarised per session, not per sample): who, which robot, what was asked, what came back.
 
@@ -352,6 +367,14 @@ Excerpts in `tests/Fixtures/excerpt-r30ib-v830-repairtool/`.
   TASKLIST, VERSION and more). `/MD/` itself is 404.
 
 ### Assumed, not yet confirmed - Phase 0 checks each of these
+
+- **0.8.0 additions, all unconfirmed:** `ETHERNET.DG` and `EIPLOG.DG` layouts (`NetworkHealth` searches
+  `name: value` / `name   value` lines and fault words); UOP by the standard assignment (UI[1] *IMSTP,
+  UI[2] *HOLD, UI[3] *SFSPD, UI[8] ENBL; UO[1] CMDENBL, UO[2] SYSRDY, UO[4] PAUSED, UO[5] HELD, UO[6]
+  FAULT, UO[8] TPENBL) in `RunCheck`; `ERRACT.LS` listing exactly the active alarms (the snapshot
+  watch keys on code + message); `PRGSTATE.DG`'s "Last modified" being the controller's local time
+  (WaitCheck compares it with the backup's start); which files change between backups on their own
+  (`ChangeReport.BuiltInNoise` / `ValueFiles`) - the first two real backups of one robot answer that.
 
 The code is written to tolerate being wrong about every one of them, and the probe tool records
 exactly what a real controller does instead.
@@ -465,7 +488,9 @@ never, site `staleAfterDays`), retry of scheduled backups that did not complete 
 schedules and gun data diffed as first-class items. *0.4.0 added, from backups only:* search with
 register-aware matching and where-used, programs nothing calls, alarm history (Pareto, per robot,
 mean time between, battery/collision/mastering call-outs), watched setting changes, fleet
-inventory + CSV, the site report. Still to do, in this order: fleet consistency compare (same
+inventory + CSV, the site report. *0.8.0 added:* What changed (newest vs previous complete backup, DCS called out, changed program lines
+quoted, site `ignoreChanges`), backups opened from a folder without a site. Still to do, in this
+order: fleet consistency compare (same
 program/schedule/variable across robots, odd one out); golden backup + drift report; per-site
 ignore lists for noisy files and lines; plain-words change log ("WELD_A line 42: 1500 -> 1200
 mm/s"); quick "programs and registers only" backup profile; diagnostics bundle for FANUC support.
@@ -473,9 +498,11 @@ mm/s"); quick "programs and registers only" backup profile; diagnostics bundle f
 **Phase 3 - inspect.** KCL console (classified), system variable / register browser (read),
 alarm history, live I/O view (read), diagnostics bundle for FANUC support. *0.6.0 started it:* the
 Live tab (active alarms, recent history, I/O, program state, position from diagnostic pages).
+*0.8.0:* Why stopped? (RunCheck + WaitCheck), Network (Ethernet / EtherNet/IP pages), cell alarm
+timeline, alarm snapshots on the recording loop, Site visit (probe + backup + capture per robot).
 
 **Phase 4 - trend.** *Started in 0.2.0:* registers, I/O and system variables polled into SQLite on
-many robots at once, chart, CSV. Still to do - the process-engineer side, each depending on what
+many robots at once, chart, CSV. *0.8.0:* Timing (I/O watch: hold times, stuck signals). Still to do - the process-engineer side, each depending on what
 Phase 0 shows the controllers expose: cycle time per program (from program state polling or a timer
 register; histogram, slow cycles flagged); availability (running / held / faulted time); maintenance
 by run time (grease, battery, reducer - servo-on hours or cycle counts, not calendar); spot gun watch
@@ -489,6 +516,9 @@ fallback (port 23, same classifier) where the HTTP KCL resource is locked.
 Roboguide appears; restore assistant.
 
 ## Current state
+
+**Latest: 0.8.0** (its paragraph is further down, before *Decided against*; *Pick up here* is current).
+`main` was still at 0.5.0 on 16 Nov 2026 - merge `systems-0.6.0` into it.
 
 **0.5.0 - backup health, verify, retries, prune, network view, clock check, site bundles, CSV
 exports. Still never in front of a real controller.**
@@ -518,6 +548,20 @@ moving the entry, move to another system, remove, system settings) and `BackupCh
 `SystemPickerViewModel` and `LiveViewModel`. **The XAML and code-behind (`App.xaml.cs`,
 `SystemPickerWindow`, `BackupChoiceWindow`, `SystemWindow`, `RobotWindow`, the Live tab and the
 System menu) compile only in CI** - the `verify` run is their first check.
+
+**0.8.0 - what changed, site visit, backups from a folder, why stopped, network, cell timeline,
+alarm snapshots, I/O timing. Still never a real backup.**
+
+Written in a session with the .NET 10 SDK from Ubuntu's archive and no NuGet, as before: Core,
+RobotSim and the suite (~435 cases; new `ChangeReportTests`, `LooseArchiveTests`, `SiteVisitTests`,
+`LiveDebugTests`, `AlarmSnapshotTests`) built under warnings-as-errors against the stand-ins and passed.
+The view models (`LooseViewModel`, `AlarmTimelineViewModel`, `SnapshotsViewModel`, and the additions to
+Main/Live/Trend) compiled with `System.IO` removed. **All XAML and code-behind compile only in CI**:
+the Changes, Search and Alarms tabs' content moved into UserControls (`ChangesPanel`, `SearchPanel`,
+`AlarmHistoryPanel`) shared with `LooseWindow`; new `TimelinePanel`, `LooseWindow`; Live's *Why
+stopped?* and *Network* tabs; Trends' *Timing* tab and *Snapshot on new alarm*; Alarms' sub-tabs;
+menu items and toolbar buttons; `DocumentWindow.Report` (Save as); the picker's *Backups from a folder*.
+`site.json` gained `ignoreChanges` (one space-separated string, so `SiteSettings` equality stays by value).
 
 **Decided against, on purpose:** a subnet scan to discover robots. *Safety* says no broadcast,
 multicast or sweep from RobControl - discovery is NetControl's job. A NetControl-to-RobControl
@@ -575,6 +619,14 @@ own (they use no WPF type). **`MainWindow.xaml.cs` (OnClosing, tray wiring) and 
 items compile only in CI.**
 
 ### Pick up here
+
+- **0.8.0 first:** read the `verify` run - the panels moved out of `MainWindow.xaml` into UserControls,
+  which is where a XAML break would show. Then on Windows: Live > Why stopped? and Network against a
+  robot; Trends with Snapshot on new alarm (pull an E-stop on a robot at rest, or watch one that
+  faults); a Site visit of a two-robot system; What changed after two backups; Site > Open backups
+  from a folder on an archive copy.
+- **First real backup pair of one robot:** run What changed and move every file that changed by
+  itself into `ChangeReport.BuiltInNoise` (or the site's *Not a change*) - with the version it was seen on.
 
 - **Next robot visit (0.7.2):** run **Capture for support** on it first and bring the zip back. Then
   read `report.txt`: every zero is a parser to fix against the page beside it. Check the event log for

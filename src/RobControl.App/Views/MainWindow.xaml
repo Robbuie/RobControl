@@ -78,6 +78,9 @@
         <Separator />
         <MenuItem Header="Site _report..." Command="{Binding Fleet.ReportCommand}"
                   ToolTip="One page for the visit, from the backups: backup status, alarms needing a job, frequent alarms, watched setting changes, notes." />
+        <MenuItem Header="Open backups from a fo_lder..." Command="{Binding OpenLooseCommand}"
+                  ToolTip="A stick, a share, another engineer's archive: browse, compare, search and read alarm history from the files - no site needed, nothing written." />
+        <Separator />
         <MenuItem Header="_Open site folder" Command="{Binding OpenSiteFolderCommand}"
                   ToolTip="Where site.json and the site's system folders live (Documents\RobControl\Systems). They can be edited by hand while the site is closed." />
       </MenuItem>
@@ -94,6 +97,9 @@
             </Style>
           </MenuItem.ItemContainerStyle>
         </MenuItem>
+        <Separator />
+        <MenuItem Header="Site _visit..." Command="{Binding SiteVisitCommand}"
+                  ToolTip="Every robot of this system in turn: probe, back up, capture for support - then one report and one zip to take home. Read-only." />
         <Separator />
         <MenuItem Header="System s_ettings..." Command="{Binding EditSystemCommand}"
                   ToolTip="Name, notes, and what a backup of this system takes: devices, folders, files to leave out." />
@@ -136,6 +142,8 @@
         <MenuItem Header="S_top" Command="{Binding StopCommand}"
                   ToolTip="Stops after the file being copied. Anything cut short is marked INCOMPLETE." />
         <Separator />
+        <MenuItem Header="_What changed..." Command="{Binding WhatChangedCommand}"
+                  ToolTip="Each robot's newest complete backup against the one before it: programs, settings and DCS files that changed, with the changed program lines. From the archive; nothing is sent to a robot." />
         <MenuItem Header="_Compare backups" Command="{Binding CompareCommand}"
                   ToolTip="The two ticked backups - or, with none ticked, the newest against the one before it." />
         <Separator />
@@ -188,6 +196,11 @@
           <Button Content="Stop" Command="{Binding StopCommand}" />
           <Border Style="{StaticResource ToolbarSeparator}" />
           <Button Content="Compare" Command="{Binding CompareCommand}" />
+          <Button Content="What changed" Command="{Binding WhatChangedCommand}"
+                  ToolTip="Each robot's newest complete backup against the one before it - programs, settings, DCS. From the archive only." />
+          <Border Style="{StaticResource ToolbarSeparator}" />
+          <Button Content="Site visit" Command="{Binding SiteVisitCommand}"
+                  ToolTip="Every robot of this system in turn: probe, back up, capture - then one report and one zip. Read-only." />
           <Button Content="Diagnose network" Command="{Binding DiagnoseNetworkCommand}"
                   ToolTip="Opens NetControl on this robot's address." />
         </StackPanel>
@@ -347,7 +360,7 @@
               <StackPanel DockPanel.Dock="Top">
                 <WrapPanel>
                   <Button Content="Read now" Style="{StaticResource PrimaryButton}" Command="{Binding ReadNowCommand}" Margin="0,0,10,0"
-                          ToolTip="GETs the controller's own diagnostic pages: active alarms, alarm history, program state, current position, stop signals, I/O. Reads only." />
+                          ToolTip="GETs the controller's own diagnostic pages: active alarms, alarm history, program state, current position, stop signals, I/O, Ethernet and the EtherNet/IP log. Reads only." />
                   <CheckBox Content="Every" IsChecked="{Binding AutoRefresh}" VerticalAlignment="Center" Margin="0,0,6,0"
                             ToolTip="Reads again on a timer while this robot stays selected. Never faster than every 5 s, and skipped while it is being backed up, probed or recorded." />
                   <TextBox Text="{Binding IntervalSeconds, UpdateSourceTrigger=LostFocus}" Width="44" FontFamily="{DynamicResource mono}" />
@@ -383,6 +396,83 @@
                         <DataGridTextColumn Header="When" Width="125" Binding="{Binding When, Mode=OneWay, StringFormat=g}" />
                         <DataGridTextColumn Header="Alarm" Width="85" Binding="{Binding Code, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
                         <DataGridTextColumn Header="Message" Width="*" Binding="{Binding Message, Mode=OneWay}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                  </Grid>
+                </TabItem>
+
+                <TabItem Header="Why stopped?"
+                         ToolTip="Why won't it run: alarms, stop signals, the UOP that hold it, paused tasks - and where each task is waiting, from the newest backup's listings.">
+                  <Grid Margin="4">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="*" MinHeight="80" />
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="*" MinHeight="80" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="{Binding RunSummary}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="2,0,0,6" />
+                    <TextBlock Grid.Row="1" Style="{StaticResource PanelHead}" Margin="2,0,0,4"
+                               Text="WHY IT WOULD NOT RUN (UOP BY THE STANDARD ASSIGNMENT; THE CONTROLLER'S OWN COMMENT IS SHOWN WHEN IT DIFFERS)" />
+                    <DataGrid Grid.Row="2" ItemsSource="{Binding Blockers}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="" Width="70" Binding="{Binding LevelText, Mode=OneWay}">
+                          <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding LevelText}" Value="Stops it">
+                                  <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                                  <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding LevelText}" Value="Holds it">
+                                  <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="What" Width="230" Binding="{Binding What, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Why" Width="*" Binding="{Binding Why, Mode=OneWay}">
+                          <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                              <Setter Property="TextWrapping" Value="Wrap" />
+                            </Style>
+                          </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="Where to look" Width="*" Binding="{Binding Where, Mode=OneWay}">
+                          <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
+                              <Setter Property="TextWrapping" Value="Wrap" />
+                            </Style>
+                          </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                      </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Grid.Row="3" Style="{StaticResource PanelHead}" Margin="2,10,0,4"
+                               Text="WHERE EACH TASK IS WAITING (THE LINE IS FROM THE NEWEST BACKUP'S LISTING; THE SIGNALS ARE LIVE)" />
+                    <DataGrid Grid.Row="4" ItemsSource="{Binding WaitLines}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                      <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                          <Setter Property="ToolTip" Value="{Binding Note}" />
+                          <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsWaitingOnASignal}" Value="True">
+                              <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                            </DataTrigger>
+                          </Style.Triggers>
+                        </Style>
+                      </DataGrid.RowStyle>
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="Task" Width="110" Binding="{Binding Task, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Status" Width="75" Binding="{Binding Status, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Program" Width="110" Binding="{Binding Program, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Line" Width="45" Binding="{Binding Line, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Text" Width="2*" Binding="{Binding Text, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Signals on the line (now)" Width="2*" Binding="{Binding SignalsText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                        <DataGridTextColumn Header="Note" Width="*" Binding="{Binding Note, Mode=OneWay}" ElementStyle="{StaticResource Muted}" />
                       </DataGrid.Columns>
                     </DataGrid>
                   </Grid>
@@ -565,6 +655,65 @@
                   </DockPanel>
                 </TabItem>
 
+                <TabItem Header="Network"
+                         ToolTip="The Ethernet page's values and the EtherNet/IP log, error counters and faults flagged. Layouts not yet seen on a real controller - the Pages tab has both files whole.">
+                  <DockPanel Margin="4">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                      <CheckBox Content="Only what is flagged" IsChecked="{Binding NetworkConcernsOnly}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                      <TextBlock Style="{StaticResource Muted}" Text="{Binding NetworkSummary}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    </WrapPanel>
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <DockPanel Grid.Column="0">
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="ETHERNET (ETHERNET.DG)" Margin="2,0,0,4" />
+                        <DataGrid ItemsSource="{Binding NetworkCounters}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                          <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding Concern}" Value="True">
+                                  <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </DataGrid.RowStyle>
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="Section" Width="110" Binding="{Binding Section, Mode=OneWay}" />
+                            <DataGridTextColumn Header="Name" Width="*" Binding="{Binding Name, Mode=OneWay}" />
+                            <DataGridTextColumn Header="Value" Width="*" Binding="{Binding Value, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+                      <DockPanel Grid.Column="2">
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="ETHERNET/IP LOG (EIPLOG.DG)" Margin="2,0,0,4" />
+                        <DataGrid ItemsSource="{Binding NetworkLog}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader"
+                                  VirtualizingPanel.IsVirtualizing="True">
+                          <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding Concern}" Value="True">
+                                  <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </DataGrid.RowStyle>
+                          <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Width="40" Binding="{Binding Number, Mode=OneWay}" />
+                            <DataGridTextColumn Header="Line" Width="*" Binding="{Binding Text, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                          </DataGrid.Columns>
+                        </DataGrid>
+                      </DockPanel>
+                    </Grid>
+                  </DockPanel>
+                </TabItem>
+
                 <TabItem Header="Pages">
                   <Grid Margin="4">
                     <Grid.RowDefinitions>
@@ -592,85 +741,7 @@
           </TabItem>
 
           <TabItem x:Name="ChangesTab" Header="Changes">
-            <DockPanel Margin="8" DataContext="{Binding Compare}">
-              <StackPanel DockPanel.Dock="Top" Margin="2,0,0,6">
-                <TextBlock Style="{StaticResource PanelTitle}" Text="{Binding Title}" />
-                <TextBlock Style="{StaticResource Muted}" Text="{Binding Summary}" />
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                  <CheckBox Content="Hide unchanged" IsChecked="{Binding HideUnchanged}" Margin="0,0,14,0" />
-                  <CheckBox Content="Hide live data (.DG)" IsChecked="{Binding HideLiveData}"
-                            ToolTip=".DG files are snapshots of positions, clocks and counters, and differ between any two backups." />
-                </StackPanel>
-              </StackPanel>
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="230" MinWidth="160" />
-                  <ColumnDefinition Width="6" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <DataGrid Grid.Column="0"
-                          ItemsSource="{Binding Files}"
-                          SelectedItem="{Binding SelectedFile}"
-                          AutoGenerateColumns="False"
-                          IsReadOnly="True"
-                          SelectionMode="Single"
-                          HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal"
-                          RowHeaderWidth="0"
-                          BorderThickness="0">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="File" Width="*" Binding="{Binding Path, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                    <DataGridTextColumn Header="Change" Width="65" Binding="{Binding Change, Mode=OneWay}" />
-                    <DataGridTextColumn Header="" Width="55" Binding="{Binding Note, Mode=OneWay}" ElementStyle="{StaticResource Muted}" />
-                  </DataGrid.Columns>
-                </DataGrid>
-                <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" />
-                <ListBox Grid.Column="2"
-                         ItemsSource="{Binding Lines}"
-                         BorderThickness="0"
-                         Background="{DynamicResource bg-0}"
-                         VirtualizingPanel.IsVirtualizing="True"
-                         VirtualizingPanel.VirtualizationMode="Recycling"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                  <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem">
-                      <Setter Property="Padding" Value="0" />
-                      <Setter Property="Margin" Value="0" />
-                      <Setter Property="Template">
-                        <Setter.Value>
-                          <ControlTemplate TargetType="ListBoxItem">
-                            <Border x:Name="Row" Background="Transparent" Padding="4,0">
-                              <ContentPresenter />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                              <DataTrigger Binding="{Binding Kind}" Value="added">
-                                <Setter TargetName="Row" Property="Background" Value="{DynamicResource row-good}" />
-                              </DataTrigger>
-                              <DataTrigger Binding="{Binding Kind}" Value="removed">
-                                <Setter TargetName="Row" Property="Background" Value="{DynamicResource row-bad}" />
-                              </DataTrigger>
-                              <DataTrigger Binding="{Binding Kind}" Value="header">
-                                <Setter TargetName="Row" Property="Background" Value="{DynamicResource bg-2}" />
-                              </DataTrigger>
-                            </ControlTemplate.Triggers>
-                          </ControlTemplate>
-                        </Setter.Value>
-                      </Setter>
-                    </Style>
-                  </ListBox.ItemContainerStyle>
-                  <ListBox.ItemTemplate>
-                    <DataTemplate DataType="{x:Type vm:DiffLineViewModel}">
-                      <StackPanel Orientation="Horizontal">
-                        <TextBlock Style="{StaticResource MonoText}" Width="44" TextAlignment="Right" Foreground="{DynamicResource txt-2}" Text="{Binding OldNumber}" />
-                        <TextBlock Style="{StaticResource MonoText}" Width="44" TextAlignment="Right" Foreground="{DynamicResource txt-2}" Text="{Binding NewNumber}" />
-                        <TextBlock Style="{StaticResource MonoText}" Width="18" TextAlignment="Center" Text="{Binding Marker}" />
-                        <TextBlock Style="{StaticResource MonoText}" Text="{Binding Text}" />
-                      </StackPanel>
-                    </DataTemplate>
-                  </ListBox.ItemTemplate>
-                </ListBox>
-              </Grid>
-            </DockPanel>
+            <views:ChangesPanel DataContext="{Binding Compare}" />
           </TabItem>
 
           <TabItem x:Name="TrendsTab" Header="Trends">
@@ -701,6 +772,9 @@
                           ToolTip="Records every selected robot at once, each on its own loop. Only changes are stored, plus one value a minute." />
                   <Button Content="Stop" Command="{Binding StopCommand}" ToolTip="Stops the selected robots." />
                   <Button Content="Stop all" Command="{Binding StopAllCommand}" />
+                  <CheckBox Content="Snapshot on new alarm" IsChecked="{Binding SnapshotOnAlarm}" VerticalAlignment="Center" Margin="8,0,0,0"
+                            Visibility="{Binding CanSnapshot, Converter={StaticResource BoolToVisible}}"
+                            ToolTip="While recording, the active alarms are looked at every 10 s on the same connection. A new one saves the Live pages - I/O, program and line, position, stop signals - as they were at that moment: Alarms &gt; Snapshots. With no signals on a robot, Start only watches its alarms. GET only." />
                   <Border Style="{StaticResource ToolbarSeparator}" />
                   <Button Content="Remove signal" Command="{Binding RemoveCommand}" />
                   <Button Content="Export CSV" Command="{Binding ExportCommand}"
@@ -769,9 +843,60 @@
                     <ComboBox Width="90" ItemsSource="{x:Static vm:TrendViewModel.Windows}" SelectedItem="{Binding Window}" />
                     <Button Content="Refresh" Command="{Binding RefreshChartCommand}" Margin="8,0,0,0" />
                   </StackPanel>
-                  <Border BorderBrush="{DynamicResource line}" BorderThickness="1" CornerRadius="{DynamicResource corner-sm}" ClipToBounds="True">
-                    <views:TrendChart Series="{Binding Series}" From="{Binding From}" To="{Binding To}" />
-                  </Border>
+                  <TabControl>
+                    <TabItem Header="Chart">
+                      <Border BorderBrush="{DynamicResource line}" BorderThickness="1" CornerRadius="{DynamicResource corner-sm}" ClipToBounds="True">
+                        <views:TrendChart Series="{Binding Series}" From="{Binding From}" To="{Binding To}" />
+                      </Border>
+                    </TabItem>
+                    <TabItem Header="Timing (I/O watch)"
+                             ToolTip="The plotted digital signals: how long each has held its state, and every change in the window. Good to one recording interval - a pulse shorter than that can be missed.">
+                      <Grid Margin="4">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="8" />
+                          <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <DockPanel Grid.Column="0">
+                          <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="NOW - LONGEST HELD FIRST" Margin="2,0,0,4" />
+                          <DataGrid ItemsSource="{Binding Holds}"
+                                    AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                                    GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                            <DataGrid.RowStyle>
+                              <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                                <Style.Triggers>
+                                  <DataTrigger Binding="{Binding Stuck}" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                                  </DataTrigger>
+                                </Style.Triggers>
+                              </Style>
+                            </DataGrid.RowStyle>
+                            <DataGrid.Columns>
+                              <DataGridTextColumn Header="Signal" Width="*" Binding="{Binding Signal, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                              <DataGridTextColumn Header="Comment" Width="*" Binding="{Binding Comment, Mode=OneWay}" />
+                              <DataGridTextColumn Header="State" Width="50" Binding="{Binding State, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                              <DataGridTextColumn Header="Held for" Width="150" Binding="{Binding HeldText, Mode=OneWay}" />
+                              <DataGridTextColumn Header="Changes" Width="60" Binding="{Binding Changes, Mode=OneWay}" />
+                            </DataGrid.Columns>
+                          </DataGrid>
+                        </DockPanel>
+                        <DockPanel Grid.Column="2">
+                          <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="CHANGES - NEWEST FIRST" Margin="2,0,0,4" />
+                          <DataGrid ItemsSource="{Binding Transitions}"
+                                    AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                                    GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader"
+                                    VirtualizingPanel.IsVirtualizing="True" EnableRowVirtualization="True">
+                            <DataGrid.Columns>
+                              <DataGridTextColumn Header="When" Width="70" Binding="{Binding When, Mode=OneWay}" />
+                              <DataGridTextColumn Header="Signal" Width="*" Binding="{Binding Signal, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                              <DataGridTextColumn Header="Change" Width="85" Binding="{Binding Change, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                              <DataGridTextColumn Header="Had held" Width="95" Binding="{Binding HeldText, Mode=OneWay}" />
+                            </DataGrid.Columns>
+                          </DataGrid>
+                        </DockPanel>
+                      </Grid>
+                    </TabItem>
+                  </TabControl>
                 </DockPanel>
               </Grid>
             </DockPanel>
@@ -780,142 +905,54 @@
           <!-- ============ Fleet-wide tabs: read the archive, never a robot ============ -->
 
           <TabItem Header="Search">
-            <DockPanel Margin="8" DataContext="{Binding Search}">
-              <StackPanel DockPanel.Dock="Top">
-                <DockPanel>
-                  <Button DockPanel.Dock="Right" Content="Stop" Command="{Binding CancelCommand}" Margin="6,0,0,0" />
-                  <Button DockPanel.Dock="Right" Content="Search" Style="{StaticResource PrimaryButton}" Command="{Binding SearchCommand}" Margin="6,0,0,0" />
-                  <TextBox Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}"
-                           ToolTip="A program name (WELD_A), a register or port (R[45], PR[3], DO[120]) - found however the line writes it - or any text.">
-                    <TextBox.InputBindings>
-                      <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
-                    </TextBox.InputBindings>
-                  </TextBox>
-                </DockPanel>
-                <WrapPanel Margin="0,6,0,0">
-                  <ComboBox ItemsSource="{Binding Scopes}" SelectedItem="{Binding Scope}" Width="230" Margin="0,0,10,0" />
-                  <CheckBox Content="Every backup, not just the newest" IsChecked="{Binding EveryBackup}" Margin="0,0,10,0" VerticalAlignment="Center"
-                            ToolTip="Search the whole history - to find when a line first appeared or which backup still had it." />
-                  <CheckBox Content="Match case" IsChecked="{Binding CaseSensitive}" Margin="0,0,10,0" VerticalAlignment="Center" />
-                  <CheckBox Content="Regex" IsChecked="{Binding IsRegex}" Margin="0,0,10,0" VerticalAlignment="Center" />
-                  <Button Content="Programs nothing calls" Command="{Binding NotCalledCommand}"
-                          ToolTip="Programs no other program CALLs or RUNs, per robot. They may still be started by PNS, RSR, a style table, a macro or the PLC." Margin="0,0,10,0" />
-                  <Button Content="Export hits..." Command="{Binding ExportHitsCommand}" Margin="0,0,6,0"
-                          ToolTip="Every hit as CSV: robot, backup, file, program, line number and the line." />
-                  <Button Content="Export programs..." Command="{Binding ExportUsesCommand}"
-                          ToolTip="The program list on the right as CSV - where-used, or programs nothing calls." />
-                </WrapPanel>
-                <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
-              </StackPanel>
-
-              <Grid>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="2*" MinHeight="80" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="*" MinHeight="60" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="*" MinHeight="60" />
-                </Grid.RowDefinitions>
-
-                <DataGrid Grid.Row="0" ItemsSource="{Binding Hits}" SelectedItem="{Binding SelectedHit}"
-                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Program" Width="110" Binding="{Binding Program, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Line" Width="50" Binding="{Binding Line, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Text" Width="*" Binding="{Binding Text, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                    <DataGridTextColumn Header="File" Width="120" Binding="{Binding File, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Backup" Width="130" Binding="{Binding Stamp, Mode=OneWay}" />
-                  </DataGrid.Columns>
-                </DataGrid>
-
-                <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent" />
-
-                <TextBox Grid.Row="2" Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True" FontFamily="{DynamicResource mono}"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
-                         ToolTip="The lines around the selected hit, from the backup on disk." />
-
-                <TextBlock Grid.Row="3" Style="{StaticResource PanelHead}" Text="{Binding UsesTitle}" TextWrapping="Wrap" Margin="2,8,0,4" />
-
-                <DataGrid Grid.Row="4" ItemsSource="{Binding Uses}"
-                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Program" Width="130" Binding="{Binding Program, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Comment" Width="*" Binding="{Binding Comment, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Lines" Width="120" Binding="{Binding LineList, Mode=OneWay}" />
-                  </DataGrid.Columns>
-                </DataGrid>
-              </Grid>
-            </DockPanel>
+            <views:SearchPanel DataContext="{Binding Search}" />
           </TabItem>
 
           <TabItem Header="Alarms">
-            <DockPanel Margin="8" DataContext="{Binding Alarms}">
-              <StackPanel DockPanel.Dock="Top">
-                <WrapPanel>
-                  <Button Content="Refresh" Style="{StaticResource PrimaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,10,0"
-                          ToolTip="Reads the alarm log (ERRALL.LS) in every backup of this site and merges them - a longer history than the controller keeps." />
-                  <TextBlock Text="Period" VerticalAlignment="Center" Margin="0,0,6,0" />
-                  <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" Width="100" Margin="0,0,10,0" />
-                  <CheckBox Content="Only battery, collision and mastering" IsChecked="{Binding OnlyConcerns}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                  <Button Content="Export CSV..." Command="{Binding ExportCsvCommand}"
-                          ToolTip="Every alarm in the period and filter shown, one per line - when, robot, code, message - for a pivot table or the maintenance planner." />
-                </WrapPanel>
-                <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
-              </StackPanel>
-
-              <Grid>
-                <Grid.RowDefinitions>
-                  <RowDefinition Height="*" MinHeight="80" />
-                  <RowDefinition Height="Auto" />
-                  <RowDefinition Height="*" MinHeight="80" />
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="8" />
-                  <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <DataGrid Grid.Row="0" Grid.ColumnSpan="3" ItemsSource="{Binding Codes}" SelectedItem="{Binding SelectedCode}"
-                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="Alarm" Width="85" Binding="{Binding Code, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                    <DataGridTextColumn Header="Message" Width="*" Binding="{Binding Message, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Count" Width="55" Binding="{Binding Count, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Robots" Width="150" Binding="{Binding Robots, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Last seen" Width="120" Binding="{Binding LastSeen, Mode=OneWay, StringFormat=g}" />
-                    <DataGridTextColumn Header="Needs a job" Width="85" Binding="{Binding ConcernText, Mode=OneWay}" />
-                  </DataGrid.Columns>
-                </DataGrid>
-
-                <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource PanelHead}" Text="PER ROBOT" Margin="2,10,0,4" />
-                <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource PanelHead}" Text="OCCURRENCES OF THE SELECTED ALARM" Margin="2,10,0,4" />
-
-                <DataGrid Grid.Row="2" Grid.Column="0" ItemsSource="{Binding Robots}"
-                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="Robot" Width="*" Binding="{Binding Robot, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Alarms" Width="55" Binding="{Binding Count, Mode=OneWay}" />
-                    <DataGridTextColumn Header="Most frequent" Width="95" Binding="{Binding TopCode, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
-                    <DataGridTextColumn Header="Mean time between" Width="115" Binding="{Binding MeanTimeBetweenText, Mode=OneWay}" />
-                  </DataGrid.Columns>
-                </DataGrid>
-
-                <DataGrid Grid.Row="2" Grid.Column="2" ItemsSource="{Binding Occurrences}"
-                          AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
-                          GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
-                  <DataGrid.Columns>
-                    <DataGridTextColumn Header="When" Width="125" Binding="{Binding When, Mode=OneWay, StringFormat=g}" />
-                    <DataGridTextColumn Header="Robot" Width="*" Binding="{Binding Robot, Mode=OneWay}" />
-                  </DataGrid.Columns>
-                </DataGrid>
-              </Grid>
-            </DockPanel>
+            <TabControl Margin="4">
+              <TabItem Header="History">
+                <views:AlarmHistoryPanel DataContext="{Binding Alarms}" />
+              </TabItem>
+              <TabItem Header="Cell timeline"
+                       ToolTip="Every robot's alarms on one time axis, grouped into incidents, with the robot that went first.">
+                <views:TimelinePanel DataContext="{Binding Timeline}" />
+              </TabItem>
+              <TabItem Header="Snapshots"
+                       ToolTip="The state a robot was in when a new alarm appeared while it was recorded (Trends: Snapshot on new alarm).">
+                <DockPanel Margin="8" DataContext="{Binding Snapshots}">
+                  <StackPanel DockPanel.Dock="Top">
+                    <WrapPanel>
+                      <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,10,0" />
+                      <Button Content="Open" Style="{StaticResource PrimaryButton}" Command="{Binding ShowCommand}" Margin="0,0,10,0"
+                              ToolTip="The selected snapshot as a document: the alarm, why it would not run, tasks and lines, stop signals, UOP, outputs, position." />
+                      <Button Content="Open folder" Command="{Binding OpenFolderCommand}"
+                              ToolTip="The snapshot's folder: snapshot.md and every page read, exactly as the controller wrote it." />
+                    </WrapPanel>
+                    <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
+                  </StackPanel>
+                  <Grid>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="*" MinHeight="80" />
+                      <RowDefinition Height="6" />
+                      <RowDefinition Height="2*" MinHeight="80" />
+                    </Grid.RowDefinitions>
+                    <DataGrid Grid.Row="0" ItemsSource="{Binding Snapshots}" SelectedItem="{Binding Selected}"
+                              AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader">
+                      <DataGrid.Columns>
+                        <DataGridTextColumn Header="When" Width="135" Binding="{Binding When, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
+                        <DataGridTextColumn Header="New alarm" Width="*" Binding="{Binding AlarmsText, Mode=OneWay}" />
+                        <DataGridTextColumn Header="Why it stopped" Width="*" Binding="{Binding Summary, Mode=OneWay}" />
+                      </DataGrid.Columns>
+                    </DataGrid>
+                    <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent" />
+                    <TextBox Grid.Row="2" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" FontFamily="{DynamicResource mono}"
+                             TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" />
+                  </Grid>
+                </DockPanel>
+              </TabItem>
+            </TabControl>
           </TabItem>
 
           <TabItem Header="Fleet">

@@ -1,0 +1,85 @@
+<UserControl x:Class="RobControl.App.Views.TimelinePanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:RobControl.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:AlarmTimelineViewModel}">
+  <!-- Alarms > Cell timeline: every robot's alarms on one time axis, grouped into incidents. -->
+  <DockPanel Margin="8">
+    <StackPanel DockPanel.Dock="Top">
+      <WrapPanel>
+        <Button Content="Refresh" Style="{StaticResource PrimaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,10,0"
+                ToolTip="Reads the alarm log in every backup and lays them on one time axis. Nothing is read from the robots." />
+        <Button Content="Read robots now" Command="{Binding ReadLiveCommand}" Margin="0,0,10,0"
+                Visibility="{Binding CanReadLive, Converter={StaticResource BoolToVisible}}"
+                ToolTip="GETs each robot's alarm log (ERRALL.LS) now, one robot at a time, and its clock from the web server - for a stop that happened since the last backup. Busy or recording robots are left out." />
+        <Button Content="Stop" Command="{Binding CancelCommand}" Margin="0,0,14,0" />
+        <TextBlock Text="Period" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <ComboBox ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" Width="100" Margin="0,0,14,0" />
+        <TextBlock Text="One incident if within" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <TextBox Text="{Binding GapSeconds, UpdateSourceTrigger=LostFocus}" Width="50" FontFamily="{DynamicResource mono}"
+                 ToolTip="Alarms closer together than this many seconds are grouped as one incident." />
+        <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,14,0" />
+        <CheckBox Content="Only stops on more than one robot" IsChecked="{Binding OnlyCellStops}" VerticalAlignment="Center" />
+      </WrapPanel>
+      <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
+    </StackPanel>
+
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="*" MinHeight="80" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="2*" MinHeight="80" />
+      </Grid.RowDefinitions>
+
+      <DataGrid Grid.Row="0" ItemsSource="{Binding Incidents}" SelectedItem="{Binding SelectedIncident}"
+                AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader"
+                VirtualizingPanel.IsVirtualizing="True">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="#" Width="45" Binding="{Binding Number, Mode=OneWay}" />
+          <DataGridTextColumn Header="Started" Width="130" Binding="{Binding Start, Mode=OneWay, StringFormat=g}" />
+          <DataGridTextColumn Header="Lasted" Width="60" Binding="{Binding Duration, Mode=OneWay}" />
+          <DataGridTextColumn Header="First" Width="150" Binding="{Binding FirstText, Mode=OneWay}">
+            <DataGridTextColumn.ElementStyle>
+              <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                <Setter Property="FontWeight" Value="SemiBold" />
+              </Style>
+            </DataGridTextColumn.ElementStyle>
+          </DataGridTextColumn>
+          <DataGridTextColumn Header="First alarm" Width="*" Binding="{Binding FirstAlarm, Mode=OneWay}" />
+          <DataGridTextColumn Header="Alarms" Width="55" Binding="{Binding Count, Mode=OneWay}" />
+          <DataGridTextColumn Header="Robots" Width="200" Binding="{Binding RobotsText, Mode=OneWay}" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <TextBlock Grid.Row="1" Style="{StaticResource PanelHead}" Margin="2,10,0,4"
+                 Text="ALARMS - THE SELECTED INCIDENT, OR ALL (NEWEST FIRST, BY THIS PC'S CLOCK WHERE KNOWN)" />
+
+      <DataGrid Grid.Row="2" ItemsSource="{Binding Entries}"
+                AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Extended" HeadersVisibility="Column"
+                GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" ClipboardCopyMode="IncludeHeader"
+                VirtualizingPanel.IsVirtualizing="True" EnableRowVirtualization="True">
+        <DataGrid.RowStyle>
+          <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsFirst}" Value="True">
+                <Setter Property="FontWeight" Value="SemiBold" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </DataGrid.RowStyle>
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="When" Width="135" Binding="{Binding Corrected, Mode=OneWay, StringFormat=G}" />
+          <DataGridTextColumn Header="Clock" Width="105" Binding="{Binding CorrectionText, Mode=OneWay}" />
+          <DataGridTextColumn Header="#" Width="45" Binding="{Binding Incident, Mode=OneWay}" />
+          <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
+          <DataGridTextColumn Header="Alarm" Width="85" Binding="{Binding Code, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+          <DataGridTextColumn Header="Message" Width="*" Binding="{Binding Message, Mode=OneWay}" />
+        </DataGrid.Columns>
+      </DataGrid>
+    </Grid>
+  </DockPanel>
+</UserControl>

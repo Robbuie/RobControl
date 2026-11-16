@@ -78,6 +78,15 @@ public static class AppPaths
         "Captures");
 
     /// <summary>
+    /// Where alarm snapshots go - the Live pages saved the moment a new alarm appeared on a robot being
+    /// recorded: Documents\RobControl\Snapshots\&lt;site key&gt;\&lt;robot&gt;\&lt;stamp&gt;_&lt;alarm&gt;.
+    /// </summary>
+    public static string Snapshots { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments, Environment.SpecialFolderOption.DoNotVerify),
+        "RobControl",
+        "Snapshots");
+
+    /// <summary>
     /// The optional settings file. Absent by default and absent on most machines: everything it can
     /// hold has a working default, and the tool has to run correctly on a laptop where nobody has
     /// ever created it.

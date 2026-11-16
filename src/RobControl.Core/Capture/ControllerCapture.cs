@@ -38,7 +38,7 @@ public static class ControllerCapture
     public static IReadOnlyList<string> KnownPages { get; } =
     [
         "SUMMARY.DG", "VERSION.DG", "ERRACT.LS", "ERRALL.LS", "IOSTATE.DG", "NUMREG.VA", "POSREG.VA",
-        "PRGSTATE.DG", "CURPOS.DG", LiveReader.SafetyFile, "TASKLIST.DG", "ETHERNET.DG", "IOCONFIG.DG",
+        "PRGSTATE.DG", "CURPOS.DG", LiveReader.SafetyFile, "TASKLIST.DG", "ETHERNET.DG", "EIPLOG.DG", "IOCONFIG.DG",
     ];
 
     /// <summary>The KCL reads a capture makes. Both are SHOW commands; the classifier is still asked.</summary>

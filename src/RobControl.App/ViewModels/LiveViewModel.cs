@@ -30,7 +30,13 @@ public sealed class LiveViewModel : ObservableObject, IDisposable
     private readonly IEventSink _events;
     private readonly Func<RobotRowViewModel?> _selected;
     private readonly Func<long, bool> _isRecording;
+    private readonly Func<RobotRowViewModel, string, (ProgramListing Listing, DateTimeOffset TakenUtc)?>? _listing;
     private readonly CancellationTokenSource _shutdown = new();
+    private IReadOnlyList<RunBlocker> _blockers = [];
+    private IReadOnlyList<WaitLine> _waitLines = [];
+    private string _runSummary = string.Empty;
+    private NetworkHealthReport _network = NetworkHealthReport.Empty;
+    private bool _networkConcernsOnly;
     private CancellationTokenSource? _auto;
     private RobotRowViewModel? _robot;
     private bool _reading;
@@ -62,8 +68,12 @@ public sealed class LiveViewModel : ObservableObject, IDisposable
     /// <summary>The category stop signals (SFTYSIG.DG) are listed under.</summary>
     public const string StopSignals = "Stop signals";
 
-    public LiveViewModel(IUiDispatcher ui, IEventSink events, Func<RobotRowViewModel?> selected, Func<long, bool> isRecording)
+    /// <param name="listing">A program's listing from the robot's newest backup, for Where is it waiting; null leaves that out.</param>
+    public LiveViewModel(
+        IUiDispatcher ui, IEventSink events, Func<RobotRowViewModel?> selected, Func<long, bool> isRecording,
+        Func<RobotRowViewModel, string, (ProgramListing Listing, DateTimeOffset TakenUtc)?>? listing = null)
     {
+        _listing = listing;
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _selected = selected ?? throw new ArgumentNullException(nameof(selected));
@@ -72,6 +82,50 @@ public sealed class LiveViewModel : ObservableObject, IDisposable
     }
 
     public IAsyncRelayCommand ReadNowCommand { get; }
+
+    /// <summary>Run check: why the robot would not run, worst first.</summary>
+    public IReadOnlyList<RunBlocker> Blockers
+    {
+        get => _blockers;
+        private set => SetProperty(ref _blockers, value);
+    }
+
+    /// <summary>Run check: where each task is, the line it is at and the signals on it.</summary>
+    public IReadOnlyList<WaitLine> WaitLines
+    {
+        get => _waitLines;
+        private set => SetProperty(ref _waitLines, value);
+    }
+
+    /// <summary>"Stops it: Active alarm SRVO-007 (+3 more)" - or that nothing on the pages says so.</summary>
+    public string RunSummary
+    {
+        get => _runSummary;
+        private set => SetProperty(ref _runSummary, value);
+    }
+
+    /// <summary>Network: the Ethernet page's values (only the flagged ones with <see cref="NetworkConcernsOnly"/>).</summary>
+    public IReadOnlyList<NetworkCounter> NetworkCounters =>
+        NetworkConcernsOnly ? [.. _network.Counters.Where(c => c.Concern)] : _network.Counters;
+
+    /// <summary>Network: the EtherNet/IP log, newest last as the controller lists it.</summary>
+    public IReadOnlyList<NetworkLogLine> NetworkLog =>
+        NetworkConcernsOnly ? [.. _network.Log.Where(l => l.Concern)] : _network.Log;
+
+    public string NetworkSummary => _snapshot is null ? string.Empty : NetworkNote();
+
+    public bool NetworkConcernsOnly
+    {
+        get => _networkConcernsOnly;
+        set
+        {
+            if (SetProperty(ref _networkConcernsOnly, value))
+            {
+                OnPropertyChanged(nameof(NetworkCounters));
+                OnPropertyChanged(nameof(NetworkLog));
+            }
+        }
+    }
 
     public ObservableCollection<AlarmEntry> ActiveAlarms { get; } = [];
 
@@ -369,6 +423,43 @@ public sealed class LiveViewModel : ObservableObject, IDisposable
         FillIo();
         FillPrograms();
         FillPosition(snapshot);
+        FillRunCheck(snapshot);
+        _network = snapshot?.Network ?? NetworkHealthReport.Empty;
+        OnPropertyChanged(nameof(NetworkCounters));
+        OnPropertyChanged(nameof(NetworkLog));
+        OnPropertyChanged(nameof(NetworkSummary));
+    }
+
+    private void FillRunCheck(LiveSnapshot? snapshot)
+    {
+        if (snapshot is null)
+        {
+            Blockers = [];
+            WaitLines = [];
+            RunSummary = string.Empty;
+            return;
+        }
+
+        Blockers = RunCheck.Evaluate(snapshot);
+        RobotRowViewModel? row = _selected();
+        WaitLines = row is null || _listing is null ? [] : WaitCheck.Evaluate(snapshot, program => _listing(row, program));
+        RunBlocker? top = Blockers.FirstOrDefault(b => b.Level != BlockerLevel.Note);
+        int waiting = WaitLines.Count(w => w.IsWaitingOnASignal);
+        string wait = waiting == 0 ? string.Empty : string.Create(CultureInfo.CurrentCulture, $" {waiting} task(s) at a line whose signal is not what it waits for - see below.");
+        RunSummary = top is null
+            ? "Nothing on the pages read says it is stopped or held." + wait
+            : string.Create(CultureInfo.CurrentCulture, $"{top.LevelText}: {top.What}{(Blockers.Count > 1 ? $" (+{Blockers.Count - 1} more)" : string.Empty)}.{wait}");
+    }
+
+    private string NetworkNote()
+    {
+        string? why = _snapshot?.File(NetworkHealth.EthernetFile) switch
+        {
+            null => null,
+            { IsOk: true } => null,
+            { } f => $"{NetworkHealth.EthernetFile}: {Title(f.Status.ToString())}{(f.Message is null ? string.Empty : " - " + f.Message)}. ",
+        };
+        return (why ?? string.Empty) + _network.Summary + " Layouts not yet confirmed on a real controller - the Pages tab has both files whole.";
     }
 
     /// <summary>Stop signals first (few, and what someone looking at a stopped robot wants), then the I/O page in category order.</summary>

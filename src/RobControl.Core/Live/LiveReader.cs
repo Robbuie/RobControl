@@ -39,6 +39,8 @@ public static class LiveReader
         ("Current position", "CURPOS.DG"),
         ("Stop signals", SafetyFile),
         ("I/O", RobotSampler.IoFile),
+        ("Ethernet", NetworkHealth.EthernetFile),
+        ("EtherNet/IP log", NetworkHealth.EipLogFile),
     ];
 
     /// <summary>"Current Stop Signals" on the controller's home page.</summary>
@@ -81,6 +83,7 @@ public static class LiveReader
             SafetySignals = Ok(SafetyFile) is { } safety ? SafetySignalParser.Parse(safety) : [],
             Programs = Ok("PRGSTATE.DG") is { } programs ? ProgramStateParser.Parse(programs) : ProgramStateReport.Empty,
             Position = Ok("CURPOS.DG") is { } position ? PositionParser.Parse(position) : [],
+            Network = NetworkHealth.Parse(Ok(NetworkHealth.EthernetFile), Ok(NetworkHealth.EipLogFile)),
         };
         string detail = string.Join('\n', files.Select(f =>
             $"GET /MD/{f.FileName}: {f.Status}{(f.Via is { } via ? " (" + HttpExchange.Describe(via) + ")" : string.Empty)}{(f.Message is null ? string.Empty : " - " + f.Message)}"));

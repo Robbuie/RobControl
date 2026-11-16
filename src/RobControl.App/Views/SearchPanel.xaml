@@ -1,0 +1,80 @@
+<UserControl x:Class="RobControl.App.Views.SearchPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:RobControl.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:SearchViewModel}">
+  <!-- Shared by the main window and the window on backups from a folder. -->
+  <DockPanel Margin="8">
+    <StackPanel DockPanel.Dock="Top">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Content="Stop" Command="{Binding CancelCommand}" Margin="6,0,0,0" />
+        <Button DockPanel.Dock="Right" Content="Search" Style="{StaticResource PrimaryButton}" Command="{Binding SearchCommand}" Margin="6,0,0,0" />
+        <TextBox Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}"
+                 ToolTip="A program name (WELD_A), a register or port (R[45], PR[3], DO[120]) - found however the line writes it - or any text.">
+          <TextBox.InputBindings>
+            <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+          </TextBox.InputBindings>
+        </TextBox>
+      </DockPanel>
+      <WrapPanel Margin="0,6,0,0">
+        <ComboBox ItemsSource="{Binding Scopes}" SelectedItem="{Binding Scope}" Width="230" Margin="0,0,10,0" />
+        <CheckBox Content="Every backup, not just the newest" IsChecked="{Binding EveryBackup}" Margin="0,0,10,0" VerticalAlignment="Center"
+                  ToolTip="Search the whole history - to find when a line first appeared or which backup still had it." />
+        <CheckBox Content="Match case" IsChecked="{Binding CaseSensitive}" Margin="0,0,10,0" VerticalAlignment="Center" />
+        <CheckBox Content="Regex" IsChecked="{Binding IsRegex}" Margin="0,0,10,0" VerticalAlignment="Center" />
+        <Button Content="Programs nothing calls" Command="{Binding NotCalledCommand}"
+                ToolTip="Programs no other program CALLs or RUNs, per robot. They may still be started by PNS, RSR, a style table, a macro or the PLC." Margin="0,0,10,0" />
+        <Button Content="Export hits..." Command="{Binding ExportHitsCommand}" Margin="0,0,6,0"
+                ToolTip="Every hit as CSV: robot, backup, file, program, line number and the line." />
+        <Button Content="Export programs..." Command="{Binding ExportUsesCommand}"
+                ToolTip="The program list on the right as CSV - where-used, or programs nothing calls." />
+      </WrapPanel>
+      <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextWrapping="Wrap" Margin="2,6,0,6" />
+    </StackPanel>
+
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="2*" MinHeight="80" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" MinHeight="60" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" MinHeight="60" />
+      </Grid.RowDefinitions>
+
+      <DataGrid Grid.Row="0" ItemsSource="{Binding Hits}" SelectedItem="{Binding SelectedHit}"
+                AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
+          <DataGridTextColumn Header="Program" Width="110" Binding="{Binding Program, Mode=OneWay}" />
+          <DataGridTextColumn Header="Line" Width="50" Binding="{Binding Line, Mode=OneWay}" />
+          <DataGridTextColumn Header="Text" Width="*" Binding="{Binding Text, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+          <DataGridTextColumn Header="File" Width="120" Binding="{Binding File, Mode=OneWay}" />
+          <DataGridTextColumn Header="Backup" Width="130" Binding="{Binding Stamp, Mode=OneWay}" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <GridSplitter Grid.Row="1" Height="6" HorizontalAlignment="Stretch" Background="Transparent" />
+
+      <TextBox Grid.Row="2" Text="{Binding Preview, Mode=OneWay}" IsReadOnly="True" FontFamily="{DynamicResource mono}"
+               VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
+               ToolTip="The lines around the selected hit, from the backup on disk." />
+
+      <TextBlock Grid.Row="3" Style="{StaticResource PanelHead}" Text="{Binding UsesTitle}" TextWrapping="Wrap" Margin="2,8,0,4" />
+
+      <DataGrid Grid.Row="4" ItemsSource="{Binding Uses}"
+                AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0" VirtualizingPanel.IsVirtualizing="True">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Robot" Width="110" Binding="{Binding Robot, Mode=OneWay}" />
+          <DataGridTextColumn Header="Program" Width="130" Binding="{Binding Program, Mode=OneWay}" />
+          <DataGridTextColumn Header="Comment" Width="*" Binding="{Binding Comment, Mode=OneWay}" />
+          <DataGridTextColumn Header="Lines" Width="120" Binding="{Binding LineList, Mode=OneWay}" />
+        </DataGrid.Columns>
+      </DataGrid>
+    </Grid>
+  </DockPanel>
+</UserControl>

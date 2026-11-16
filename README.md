@@ -18,17 +18,22 @@ settings to make itself work - when something is locked, it says where on the pe
 | **Live** | What the selected robot says right now, from its own web pages: active alarms, recent alarm history, every I/O point (safe I/O and stop signals included), tasks and programs, and current position - as tables you can search. Read once or every few seconds; reads only. |
 | **Probe** | What the controller is - generation, software version, application, arm, F-number - and which ways in are open: FTP, diagnostic files, KCL - and whether its clock agrees with this PC's. When something is locked it says where on the pendant to change it, and does not change it itself. |
 | **Compare** | Any two backups of a robot: which files changed, were added or removed, and the line diff of the ASCII listings (`.LS`, `.VA`). |
+| **What changed** | Each robot's newest backup against the one before it, in one page: programs and settings that changed, with the changed program lines, and **DCS (safety) files called out**. After a scheduled backup it is in the notification and the event log. |
+| **Site visit** | One button for a plant visit: every robot of the system in turn - probe, back up, capture for support - then one report and one zip to take home. |
+| **Why stopped?** | On the Live tab: why the robot would not run - active alarms, stop signals, the UOP inputs and outputs that hold it, paused tasks - and **where each task is waiting**: the program line it is at, from the newest backup, with the live state of every signal on that line. |
 | **Schedule** | Fleet backups every 4/8/12/24 hours while the app is running. Closing the window keeps RobControl going in the notification area, so the schedule carries on. A robot whose scheduled backup fails or comes back partial is tried again a few minutes later. |
 | **Verify** | Re-checks backups on disk against the SHA-256 recorded when each was taken, so a file edited, truncated or damaged by a bad copy is caught before anyone restores from it. |
-| **Trend** | Registers, I/O and system variables, typed as on the pendant (`R[1-10], DI[1..8], $TIMER[1].$TIMER_VAL`). Read once, or record several robots at once and overlay them on one chart. Only changes are stored; CSV export. |
+| **Trend** | Registers, I/O and system variables, typed as on the pendant (`R[1-10], DI[1..8], $TIMER[1].$TIMER_VAL`). Read once, or record several robots at once and overlay them on one chart. Only changes are stored; CSV export. **Timing** shows how long each watched I/O point has held its state and flags one stuck far longer than usual. |
+| **Network** | On the Live tab: the robot's Ethernet counters and EtherNet/IP log, with error counters, links that are down and connection faults flagged. |
 | **Search** | Across every robot's newest backup (or the whole history): a program name, `R[45]`, `DO[120]` or any text. Shows which programs call a program or use a register, and which programs nothing calls. |
-| **Alarms** | Alarm history from the alarm logs in the backups, merged across backups: most frequent alarms, alarms per robot, mean time between alarms, and battery, collision and mastering alarms called out. |
+| **Alarms** | Alarm history from the alarm logs in the backups, merged across backups: most frequent alarms, alarms per robot, mean time between alarms, and battery, collision and mastering alarms called out. A **cell timeline** puts every robot's alarms on one time axis, clocks corrected, and names the robot that went first. **Snapshots** save the robot's state the moment a new alarm appears while it is being recorded. |
 | **Fleet** | Every robot's model, software and serial, how its backups stand (OK, failing, stale, never), changes to tool and user frames, payload, mastering and other watched settings, and its network settings as the backup records them. CSV export and a one-page site report. |
 | **Sites and systems** | A site per plant, and systems - lines or cells - inside it, each with its own robot list and backup settings in a `system.json` you can open in Notepad. RobControl opens on a picker: choose a system or make a new one. Export a site to a file - or the whole site, history and backups, to one zip - to carry it to another laptop. |
 | **Many at once** | Ctrl/Shift-click robots in the list and Probe, Back up and Trends act on all of them. |
 | **Event log** | Every probe, backup, KCL read and trend session, append-only at the database. Export it as CSV for plant IT. |
 | **CSV everywhere** | Alarms, search hits, where-used, the robot list, network settings, trends and the event log all export to CSV for Excel. |
 | **Capture for support** | Everything one robot says about itself, read-only, in one folder and a zip: every diagnostic page it lists, a few files over FTP, its newest backup, its event log, and what RobControl made of each. What to take home from a first visit, and what FANUC support asks for. |
+| **Backups from a folder** | Open backups from a stick, a share or another engineer's archive - browse, compare, search, alarm history, cell timeline - without making a site. |
 | **Diagnose network** | Opens [NetControl](https://github.com/Robbuie/NetControl) on a robot that does not answer. |
 
 ## Getting started
@@ -152,6 +157,44 @@ device are copied too, up to four levels down, into the same shape in the archiv
 is listed in the backup's `manifest.json` and does not make the backup partial. A device the
 controller does not have - a USB stick that is not in - fails on its own and the rest still arrive.
 
+## What changed
+
+**Backup > What changed** (or the toolbar button) compares each robot's newest complete backup with
+the complete one before it and shows one page: per robot, the programs and setting files that
+changed, were added or removed, with the changed program lines quoted (`- 42:L P[3] 1500mm/sec`,
+`+ 42:L P[3] 1200mm/sec`), and **DCS files - the safety configuration - called out** whenever they
+change. **Save as** keeps the page as a Markdown file.
+
+Files that change on their own are left out of the count: diagnostic snapshots (`.DG`), the alarm
+logs, the logbook, and register files (`NUMREG`, `POSREG`), which are listed separately as values.
+If a backup shows another file changing every time without anyone touching it, add it to
+**Site settings > Not a change** (`SYSTEM.VA ACCNT*.LS`, separated by spaces).
+
+After a **scheduled** backup, the same comparison runs by itself: the notification, the status bar
+and the event log say how many robots changed and which.
+
+## Site visit
+
+**System > Site visit** (or the toolbar button) works through every robot of the open system, one
+after another: **probe** it, **back it up** with its own devices, then **capture it for support**
+with the new backup inside. At the end there is one report - each robot's controller, probe, backup,
+capture and what changed since its previous backup, and a list of anything to look at (a robot that
+did not answer, a backup that came back partial, a DCS change, a controller clock that is off) -
+and one zip of the lot under `Documents\RobControl\Captures\<site>`.
+
+A robot whose FTP does not answer is not backed up, and one that does not answer at all is not
+captured, so a dead robot costs one probe, not three timeouts. Robots that are recording trends are
+left out. It sends nothing a probe, a backup and a capture do not already send.
+
+## Backups from a folder
+
+**Site > Open backups from a folder**, or **Backups from a folder** on the opening picker, opens
+RobControl backups that are not in a site: a stick, a share, a folder another engineer sent. Pick the
+archive folder, one robot's folder, or a single backup folder - any of the three opens. The window
+lists the robots and their backups and has **Compare**, **What changed**, **Search**, **Alarm
+history** and the **Cell timeline**. It is read-only: nothing is written to the folder, no robot is
+contacted, and nothing is added to a site.
+
 An FTP backup is not an image backup: it restores files, not a dead controller. For that, use the
 controller's own image backup (boot monitor, or Auto Backup to `FRA:` or a memory card).
 
@@ -196,7 +239,8 @@ backup and the Live tab. It is refused while the robot is recording trends. Read
 
 The **Live** tab reads the selected robot's own diagnostic pages from its web server: active alarms
 (`ERRACT.LS`), the newest 50 lines of alarm history (`ERRALL.LS`), program state (`PRGSTATE.DG`),
-current position (`CURPOS.DG`), stop signals (`SFTYSIG.DG`) and I/O (`IOSTATE.DG`). **Read now**
+current position (`CURPOS.DG`), stop signals (`SFTYSIG.DG`), I/O (`IOSTATE.DG`), Ethernet
+(`ETHERNET.DG`) and the EtherNet/IP log (`EIPLOG.DG`). **Read now**
 reads them once; **Every** reads again on a timer, never faster than every 5 seconds, while that
 robot stays selected. It skips a robot that is being backed up, probed or recorded, so it never
 opens a second connection.
@@ -213,6 +257,20 @@ opens a second connection.
   it; **Running only** narrows to what is running.
 - **Position** shows each group's joints, and X/Y/Z/W/P/R in the current user frame and in world
   side by side, with the frame, tool and configuration above.
+- **Why stopped?** answers *why won't it run*. It lists, worst first: active alarms; stop signals
+  reported TRUE; the UOP inputs that hold a robot when they are off (`UI[1] *IMSTP`, `UI[2] *HOLD`,
+  `UI[3] *SFSPD`, `UI[8] ENBL`); the UOP outputs that say why it will not take a start
+  (`UO[1] CMDENBL` off, `UO[2] SYSRDY` off, `UO[6] FAULT` on, `UO[8] TPENBL` on, paused or held);
+  and paused tasks - each with why and where to look. UOP is read by FANUC's standard assignment;
+  the controller's own comment is shown beside a point when it differs, and when every `UI` is off
+  (UOP not used) the UOP checks are left out with a note.
+- Below that, **where each task is waiting**: the program and line from program state, the text of
+  that line from the robot's newest backup, and the live state of every I/O point on it - a task at
+  `WAIT DI[34:Part present]=ON` with `DI[34]` OFF is shown in red as waiting on `DI[34]`. If the
+  program was changed on the robot after that backup, the row says the line may have moved.
+- **Network** shows the Ethernet page's values (`ETHERNET.DG`) and the EtherNet/IP log (`EIPLOG.DG`)
+  with error counters above zero, links that are down and log lines about faults or timeouts marked.
+  Neither page's layout has been checked on a real controller yet; **Pages** has both whole.
 - **Pages** lists what each page returned; pick one to read its text.
 
 A page a controller does not serve is shown as *not available* under **Pages**; if the diagnostic
@@ -240,6 +298,21 @@ They go on every selected robot, and on the robot you browsed, a register's or I
 becomes its label. **Read from robot** asks the robot for its register and I/O pages - the same two
 reads the recorder makes - for current values, and for I/O a backup did not list. System variables
 only ever come from a backup, so a robot with no complete backup lists registers and I/O only.
+
+**Timing (I/O watch)**, beside the chart, is for handshakes and signals that stick. For every
+plotted digital signal it shows the state now and **how long it has held it** - flagged when that is
+more than three times the longest the same state lasted before in the window (and over a minute):
+*DI[34] OFF for 4 min; before, OFF never lasted more than 20 s*. Beside it, every change, newest
+first, with how long the state before it had held. Times are good to one recording interval: at the
+2-second minimum a shorter pulse can be missed, so this finds stuck signals rather than timing a
+handshake to the millisecond.
+
+**Snapshot on new alarm** (ticked by default) makes recording watch the robot's active alarms too,
+on the same connection, every 10 seconds. When an alarm appears that was not active at the last
+look, RobControl reads the Live pages once and saves them - the state at the moment it stopped, not
+ten minutes later. At most one snapshot a minute per robot; alarms already active when recording
+starts do not count. With no signals added to a robot, **Start recording** then only watches its
+alarms. Snapshots are on the **Alarms** tab.
 
 Registers and I/O need only the controller's web server. System variables need KCL unlocked under
 **Setup > Host Comm > HTTP** on the pendant; RobControl says so when it is locked.
@@ -276,6 +349,19 @@ PC's. **Export CSV** writes every alarm in the period and filter shown, one per 
 
 On the **Search** tab, **Export hits** and **Export programs** do the same for search results and
 the where-used list.
+
+**Cell timeline** puts every robot's alarms on one time axis and groups alarms less than two
+minutes apart (change it) into **incidents**. For each incident it names the robot whose alarm came
+**first**, how long it lasted and every robot involved - tick **Only stops on more than one robot**
+to see cell stops alone. Each controller's clock offset from this PC is taken out where RobControl
+has seen it this session (a probe, a site visit, or **Read robots now**); a row says *clock not
+known* otherwise. Alarm logs often give minutes, not seconds: robots that share the first minute are
+all named rather than one picked at random. **Refresh** reads the backups; **Read robots now** also
+reads each robot's alarm log over the web, one robot at a time, for a stop since the last backup.
+
+**Snapshots** lists the state saved when a new alarm appeared on a robot being recorded (see
+*Trends*): the alarm, why it would not run, each task's line, stop signals, UOP, outputs that were
+on and the position, with every page read kept in the snapshot's folder.
 
 ## Fleet and the site report
 
@@ -324,7 +410,8 @@ opens it in the browser, to print or save as PDF. It is made from the backups al
 | **Backups** | The site's archive folder: `<robot>\<date_time>\MD\...`, with a `manifest.json` (SHA-256 of every file) and the FTP transcript in each. Readable in Explorer without RobControl. A backup cut short ends in `_INCOMPLETE`. |
 | **Sites and systems** | `Documents\RobControl\Systems\` - a folder per site with its `site.json`, and a folder per system with its `system.json`. **Site > Open site folder** and **System > Open system folder** go there. |
 | **Databases** | `%LOCALAPPDATA%\RobControl\sites\<site>\robcontrol.db` - the robot list, probes, event log and trends of each site. |
-| **Captures** | `Documents\RobControl\Captures\<site>\<robot>_<date_time>` and a `.zip` of it beside - **Robots > Open captures folder**. |
+| **Captures** | `Documents\RobControl\Captures\<site>\<robot>_<date_time>` and a `.zip` of it beside - **Robots > Open captures folder**. Site visits are there too, as `visit_<site - system>_<date_time>` and its `.zip`. |
+| **Alarm snapshots** | `Documents\RobControl\Snapshots\<site>\<robot>\<date_time>_<alarm>` - `snapshot.md` and every page read. **Alarms > Snapshots > Open folder**. |
 | **Site reports, CSV exports and bundles** | Wherever you save them; RobControl suggests a name with the site and the date. |
 | **Event log** | In the site's database; the **Event log** tab shows it and **Export CSV** there writes it all - every probe, backup, KCL read and trend session, and what came back. What to hand plant IT or a FANUC engineer who asks what this laptop has been doing on their network. |
 | **Diagnostic log** | `%LOCALAPPDATA%\RobControl\logs` - **Help > Open the diagnostic log folder**. Send this when something misbehaves. |

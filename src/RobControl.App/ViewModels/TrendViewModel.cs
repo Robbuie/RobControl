@@ -7,6 +7,7 @@ using RobControl.App.Composition;
 using RobControl.Core;
 using RobControl.Core.Backup;
 using RobControl.Core.Events;
+using RobControl.Core.Live;
 using RobControl.Core.Persistence;
 using RobControl.Core.Robots;
 using RobControl.Core.Trending;
@@ -30,6 +31,10 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
     private readonly TrendRecorder _recorder;
     private readonly Func<IReadOnlyList<RobotRowViewModel>> _targets;
     private readonly Func<BackupArchive> _archive;
+    private readonly Func<Robot, AlarmWatchOptions>? _alarmWatch;
+    private bool _snapshotOnAlarm = true;
+    private IReadOnlyList<SignalHold> _holds = [];
+    private IReadOnlyList<SignalTransition> _transitions = [];
     private string _addText = string.Empty;
     private string _intervalSeconds = "5";
     private string _window = "30 min";
@@ -40,8 +45,12 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
     private string _status = "Select robots, add signals, then Read now or Start recording.";
 
     /// <param name="archive">The open site's archive - read by the signal browser, which lists what the newest backup holds.</param>
-    public TrendViewModel(IUiDispatcher ui, FleetStore store, TrendRecorder recorder, Func<IReadOnlyList<RobotRowViewModel>> targets, Func<BackupArchive> archive)
+    /// <param name="alarmWatch">Where a robot's alarm snapshots go, when recording takes them. Null: no snapshots.</param>
+    public TrendViewModel(
+        IUiDispatcher ui, FleetStore store, TrendRecorder recorder, Func<IReadOnlyList<RobotRowViewModel>> targets, Func<BackupArchive> archive,
+        Func<Robot, AlarmWatchOptions>? alarmWatch = null)
     {
+        _alarmWatch = alarmWatch;
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _recorder = recorder ?? throw new ArgumentNullException(nameof(recorder));
@@ -52,7 +61,7 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
         BrowseCommand = new AsyncRelayCommand(BrowseAsync, () => _targets().Count > 0);
         RemoveCommand = new RelayCommand(Remove, () => SelectedSignal is not null);
         ReadNowCommand = new AsyncRelayCommand(ReadNowAsync, () => Rows.Count > 0);
-        StartCommand = new AsyncRelayCommand(StartAsync, () => Rows.Count > 0);
+        StartCommand = new AsyncRelayCommand(StartAsync, () => Rows.Count > 0 || (SnapshotOnAlarm && _alarmWatch is not null && _targets().Count > 0));
         StopCommand = new AsyncRelayCommand(StopAsync, () => _targets().Any(r => _recorder.IsRecording(r.Robot.Id)));
         StopAllCommand = new AsyncRelayCommand(_recorder.StopAllAsync, () => _recorder.Recording.Count > 0);
         RefreshChartCommand = new RelayCommand(RefreshChart);
@@ -111,6 +120,38 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
                 RemoveCommand.NotifyCanExecuteChanged();
             }
         }
+    }
+
+    /// <summary>
+    /// Start also watches the active alarms and saves a snapshot of the Live pages when a new one appears.
+    /// With no signals on a robot, Start then only watches its alarms.
+    /// </summary>
+    public bool SnapshotOnAlarm
+    {
+        get => _snapshotOnAlarm;
+        set
+        {
+            if (SetProperty(ref _snapshotOnAlarm, value))
+            {
+                StartCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool CanSnapshot => _alarmWatch is not null;
+
+    /// <summary>The Timing view: each plotted digital signal now, and for how long.</summary>
+    public IReadOnlyList<SignalHold> Holds
+    {
+        get => _holds;
+        private set => SetProperty(ref _holds, value);
+    }
+
+    /// <summary>The Timing view: every change of the plotted digital signals in the window, newest first.</summary>
+    public IReadOnlyList<SignalTransition> Transitions
+    {
+        get => _transitions;
+        private set => SetProperty(ref _transitions, value);
     }
 
     public IReadOnlyList<TrendSeries> Series
@@ -202,16 +243,28 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
         DateTimeOffset to = DateTimeOffset.UtcNow;
         DateTimeOffset from = to - WindowSpan(Window);
         var series = new List<TrendSeries>();
+        var holds = new List<SignalHold>();
+        var transitions = new List<SignalTransition>();
         int colour = 0;
         foreach (SignalRowViewModel row in Rows.Where(r => r.IsPlotted))
         {
             IReadOnlyList<TrendPoint> points = _store.Samples(row.Signal.Id, from, to);
             series.Add(new TrendSeries(row.SeriesName, row.Signal.Address.IsDigital, colour++, points));
+            if (row.Signal.Address.IsDigital && points.Count > 0)
+            {
+                transitions.AddRange(SignalTransitions.Changes(row.SeriesName, row.Label, true, points));
+                if (SignalTransitions.Now(row.SeriesName, row.Label, true, points, to) is { } hold)
+                {
+                    holds.Add(hold);
+                }
+            }
         }
 
         From = from;
         To = to;
         Series = series;
+        Holds = [.. holds.OrderByDescending(h => h.Stuck).ThenByDescending(h => h.HeldFor)];
+        Transitions = [.. transitions.OrderByDescending(t => t.Utc).Take(1000)];
     }
 
     /// <summary>Exports the plotted series in the current window as CSV - one row per stored sample.</summary>
@@ -437,21 +490,27 @@ public sealed class TrendViewModel : ObservableObject, IDisposable
             : string.Empty;
 
         int started = 0;
-        foreach (IGrouping<RobotRowViewModel, SignalRowViewModel> group in Rows.GroupBy(r => r.Robot))
+        bool watch = SnapshotOnAlarm && _alarmWatch is not null;
+        List<RobotRowViewModel> robots = [.. Rows.Select(r => r.Robot).Concat(watch ? _targets() : []).Distinct()];
+        foreach (RobotRowViewModel robot in robots)
         {
+            List<TrendSignal> signals = [.. Rows.Where(r => r.Robot == robot).Select(r => r.Signal)];
             try
             {
-                await _recorder.StartAsync(group.Key.Robot, [.. group.Select(r => r.Signal)], interval).ConfigureAwait(true);
-                group.Key.Activity = string.Create(CultureInfo.CurrentCulture, $"Recording every {Math.Max(seconds, TrendRecorder.MinimumInterval.TotalSeconds):0.#} s");
+                await _recorder.StartAsync(robot.Robot, signals, interval, watch ? _alarmWatch!(robot.Robot) : null).ConfigureAwait(true);
+                robot.Activity = signals.Count == 0
+                    ? "Watching alarms"
+                    : string.Create(CultureInfo.CurrentCulture, $"Recording every {Math.Max(seconds, TrendRecorder.MinimumInterval.TotalSeconds):0.#} s{(watch ? " + alarms" : string.Empty)}");
                 started++;
             }
             catch (Exception ex) when (ex is ArgumentException or RobControlException)
             {
-                ShowMessage?.Invoke($"{group.Key.Name}: {ex.Message}");
+                ShowMessage?.Invoke($"{robot.Name}: {ex.Message}");
             }
         }
 
-        Status = string.Create(CultureInfo.CurrentCulture, $"Recording {started} robot(s){floor}. Values update below; the chart refreshes every few seconds.");
+        string snapshots = watch ? " A new alarm saves a snapshot of the Live pages (Alarms > Snapshots)." : string.Empty;
+        Status = string.Create(CultureInfo.CurrentCulture, $"Recording {started} robot(s){floor}. Values update below; the chart refreshes every few seconds.{snapshots}");
         RaiseCanExecute();
     }
 

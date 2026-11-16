@@ -29,6 +29,8 @@
                 Command="{Binding OpenCommand}" />
         <Button Content="{Binding CancelText}" MinWidth="80" Margin="8,0,0,0" Click="OnCancel" />
       </StackPanel>
+      <Button DockPanel.Dock="Left" Content="Backups from a folder..." Click="OnOpenLoose" Margin="0,0,12,0"
+              ToolTip="Open backups from a stick, a share or another engineer's archive - browse, compare, search, alarm history - without a site. Read-only." />
       <TextBlock Style="{StaticResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap"
                  Text="Double-click a system to open it. You can switch later from the System menu." />
     </DockPanel>

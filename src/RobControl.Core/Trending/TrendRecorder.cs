@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using RobControl.Core.Events;
+using RobControl.Core.Insight;
+using RobControl.Core.Live;
 using RobControl.Core.Robots;
 using RobControl.Core.Transports.Http;
 
@@ -25,6 +27,12 @@ namespace RobControl.Core.Trending;
 ///
 /// <para>Every start and stop writes an event row naming the robot and the signals; polls are
 /// summarised in the stop row (count, failures, samples) rather than logged one by one.</para>
+///
+/// <para><b>Alarm snapshots</b> (<see cref="AlarmWatchOptions"/>): on the same loop and the same
+/// connection, the active-alarm page is read every few seconds; when an alarm appears that was not
+/// active at the last look, the Live pages are read once and saved as a snapshot - the state at the
+/// moment it stopped, not ten minutes later. At most one snapshot a minute per robot. Alarms already
+/// active when recording starts are the baseline, not a snapshot. Still GET only.</para>
 /// </summary>
 public sealed class TrendRecorder : IAsyncDisposable
 {
@@ -50,6 +58,12 @@ public sealed class TrendRecorder : IAsyncDisposable
     /// <summary>Raised after every poll of every robot, on a worker thread.</summary>
     public event EventHandler<RecorderStatus>? StatusChanged;
 
+    /// <summary>Raised when an alarm snapshot has been saved, on a worker thread.</summary>
+    public event EventHandler<AlarmSnapshot>? SnapshotTaken;
+
+    /// <summary>Whether alarm snapshots are on for this robot's recording.</summary>
+    public bool IsWatchingAlarms(long robotId) => _sessions.TryGetValue(robotId, out Session? s) && s.WatchesAlarms;
+
     public IReadOnlyCollection<long> Recording => [.. _sessions.Keys];
 
     public bool IsRecording(long robotId) => _sessions.ContainsKey(robotId);
@@ -67,13 +81,13 @@ public sealed class TrendRecorder : IAsyncDisposable
     /// Starts recording <paramref name="signals"/> on <paramref name="robot"/>, replacing whatever was
     /// being recorded on it. The interval is raised to <see cref="MinimumInterval"/> if lower.
     /// </summary>
-    public async Task StartAsync(Robot robot, IReadOnlyList<TrendSignal> signals, TimeSpan? interval = null)
+    public async Task StartAsync(Robot robot, IReadOnlyList<TrendSignal> signals, TimeSpan? interval = null, AlarmWatchOptions? alarms = null)
     {
         ArgumentNullException.ThrowIfNull(robot);
         ArgumentNullException.ThrowIfNull(signals);
-        if (signals.Count == 0)
+        if (signals.Count == 0 && alarms is null)
         {
-            throw new ArgumentException("Nothing to record - add signals to this robot first.", nameof(signals));
+            throw new ArgumentException("Nothing to record - add signals to this robot first, or turn on alarm snapshots.", nameof(signals));
         }
 
         await StopAsync(robot.Id).ConfigureAwait(false);
@@ -83,11 +97,12 @@ public sealed class TrendRecorder : IAsyncDisposable
         {
             every = Floor;
         }
-        var session = new Session(this, robot, [.. signals], every);
+        var session = new Session(this, robot, [.. signals], every, alarms);
         if (_sessions.TryAdd(robot.Id, session))
         {
+            string watch = alarms is null ? string.Empty : string.Create(CultureInfo.InvariantCulture, $" Alarm snapshots on (active alarms looked at every {alarms.CheckEvery.TotalSeconds:0} s).");
             _events.Info(EventCategory.Trend, robot,
-                string.Create(CultureInfo.InvariantCulture, $"Recording started: {signals.Count} signals every {every.TotalSeconds:0.#} s."),
+                string.Create(CultureInfo.InvariantCulture, $"Recording started: {signals.Count} signals every {every.TotalSeconds:0.#} s.{watch}"),
                 string.Join(", ", signals.Select(s => s.Address.Text)));
             session.Start();
         }
@@ -113,7 +128,7 @@ public sealed class TrendRecorder : IAsyncDisposable
 
     private void Raise(RecorderStatus status) => StatusChanged?.Invoke(this, status);
 
-    private sealed class Session(TrendRecorder owner, Robot robot, List<TrendSignal> signals, TimeSpan interval)
+    private sealed class Session(TrendRecorder owner, Robot robot, List<TrendSignal> signals, TimeSpan interval, AlarmWatchOptions? alarms)
     {
         private readonly CancellationTokenSource _stop = new();
         private readonly Dictionary<long, (double Value, DateTimeOffset Utc)> _lastStored = [];
@@ -121,6 +136,12 @@ public sealed class TrendRecorder : IAsyncDisposable
         private long _polls;
         private long _failedPolls;
         private long _stored;
+        private HashSet<(string, string)>? _activeAlarms;
+        private DateTimeOffset _lastAlarmCheck = DateTimeOffset.MinValue;
+        private DateTimeOffset _lastSnapshot = DateTimeOffset.MinValue;
+        private int _snapshots;
+
+        public bool WatchesAlarms => alarms is not null;
 
         public void Start() => _loop = Task.Run(RunAsync);
 
@@ -139,8 +160,9 @@ public sealed class TrendRecorder : IAsyncDisposable
             }
 
             _stop.Dispose();
+            string snapshots = alarms is null ? string.Empty : string.Create(CultureInfo.InvariantCulture, $", {_snapshots} alarm snapshot(s)");
             owner._events.Info(EventCategory.Trend, robot, string.Create(CultureInfo.InvariantCulture,
-                $"Recording stopped: {_polls} polls, {_failedPolls} without an answer, {_stored} samples stored."));
+                $"Recording stopped: {_polls} polls, {_failedPolls} without an answer, {_stored} samples stored{snapshots}."));
             owner.Raise(new RecorderStatus(robot.Id, false, null, new Dictionary<string, double>(), new Dictionary<string, string>(), _stored, interval, "Stopped."));
         }
 
@@ -157,11 +179,27 @@ public sealed class TrendRecorder : IAsyncDisposable
                 SampleRead read;
                 try
                 {
-                    read = await RobotSampler.ReadAsync(web, addresses, token).ConfigureAwait(false);
+                    read = addresses.Length == 0
+                        ? new SampleRead(started, new Dictionary<string, double>(), new Dictionary<string, string>())
+                        : await RobotSampler.ReadAsync(web, addresses, token).ConfigureAwait(false);
+                    if (alarms is not null && started - _lastAlarmCheck >= alarms.CheckEvery)
+                    {
+                        _lastAlarmCheck = started;
+                        await CheckAlarmsAsync(web, token).ConfigureAwait(false);
+                    }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
                     return;
+                }
+
+                if (addresses.Length == 0)
+                {
+                    // Watching alarms only: no samples to store, nothing to back off from.
+                    owner.Raise(new RecorderStatus(robot.Id, true, started, read.Values, read.Problems, _stored, current,
+                        string.Create(CultureInfo.InvariantCulture, $"Watching alarms - {_snapshots} snapshot(s).")));
+                    await WaitAsync(alarms!.CheckEvery > current ? alarms.CheckEvery : current, started, token).ConfigureAwait(false);
+                    continue;
                 }
 
                 _polls++;
@@ -183,19 +221,82 @@ public sealed class TrendRecorder : IAsyncDisposable
                 }
 
                 owner.Raise(new RecorderStatus(robot.Id, true, read.Utc, read.Values, read.Problems, _stored, current, message));
+                await WaitAsync(current, started, token).ConfigureAwait(false);
+            }
+        }
 
-                TimeSpan wait = current - (owner._time.GetUtcNow() - started);
-                if (wait > TimeSpan.Zero)
+        private async Task WaitAsync(TimeSpan every, DateTimeOffset started, CancellationToken token)
+        {
+            TimeSpan wait = every - (owner._time.GetUtcNow() - started);
+            if (wait > TimeSpan.Zero)
+            {
+                try
                 {
-                    try
-                    {
-                        await Task.Delay(wait, owner._time, token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        return;
-                    }
+                    await Task.Delay(wait, owner._time, token).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+        }
+
+        /// <summary>
+        /// One GET of the active-alarm page; when it lists an alarm the last look did not, the Live pages
+        /// once and a snapshot. A failed read is not a snapshot and not a new baseline.
+        /// </summary>
+        private async Task CheckAlarmsAsync(ControllerWebClient web, CancellationToken token)
+        {
+            IReadOnlyList<AlarmEntry> active;
+            try
+            {
+                HttpExchange page = await web.GetDiagnosticFileAsync("ERRACT.LS", token).ConfigureAwait(false);
+                if (!page.IsSuccess)
+                {
+                    return;
+                }
+
+                active = AlarmLogParser.Parse(robot.Name, DiagnosticPage.Text(page.Text).Split('\n'));
+            }
+            catch (RobControlException)
+            {
+                // Locked, dropped, timed out: no look this time. The samples report their own trouble.
+                return;
+            }
+
+            HashSet<(string, string)> now = [.. active.Select(a => (a.Code, a.Message))];
+            HashSet<(string, string)>? before = _activeAlarms;
+            _activeAlarms = now;
+            if (before is null)
+            {
+                return;
+            }
+
+            List<AlarmEntry> appeared = [.. active.Where(a => !before.Contains((a.Code, a.Message)))];
+            if (appeared.Count == 0)
+            {
+                return;
+            }
+
+            DateTimeOffset utc = owner._time.GetUtcNow();
+            string codes = string.Join(", ", appeared.Select(a => a.Code));
+            if (utc - _lastSnapshot < alarms!.MinimumGap)
+            {
+                owner._events.Info(EventCategory.Trend, robot, $"New alarm(s) {codes} - no snapshot: one was taken under {alarms.MinimumGap.TotalSeconds:0} s ago.");
+                return;
+            }
+
+            _lastSnapshot = utc;
+            try
+            {
+                LiveSnapshot state = await LiveReader.ReadAsync(robot, web, null, token).ConfigureAwait(false);
+                AlarmSnapshot saved = AlarmSnapshots.Write(alarms.Folder, robot, appeared, state, alarms);
+                _snapshots++;
+                owner._events.Warn(EventCategory.Trend, robot, $"Alarm snapshot: {saved.AlarmsText} - {saved.Summary}.", saved.Folder);
+                owner.SnapshotTaken?.Invoke(owner, saved);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                owner._events.Warn(EventCategory.Trend, robot, $"New alarm(s) {codes} - the snapshot could not be written: {ex.Message}", alarms.Folder);
             }
         }
 

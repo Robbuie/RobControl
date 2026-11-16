@@ -26,6 +26,7 @@ public partial class SiteWindow : Window
         StaleBox.Text = draft.StaleAfterDays;
         RetriesBox.Text = draft.ScheduleRetries;
         KeepBox.Text = draft.KeepBackups;
+        IgnoreBox.Text = draft.IgnoreChanges;
         UserBox.Text = draft.DefaultFtpUser;
         PasswordInput.Password = draft.DefaultFtpPassword;
         NotesBox.Text = draft.Notes;
@@ -58,6 +59,7 @@ public partial class SiteWindow : Window
             StaleAfterDays = StaleBox.Text,
             ScheduleRetries = RetriesBox.Text,
             KeepBackups = KeepBox.Text,
+            IgnoreChanges = IgnoreBox.Text,
             DefaultFtpUser = UserBox.Text,
             DefaultFtpPassword = PasswordInput.Password,
             Notes = NotesBox.Text,

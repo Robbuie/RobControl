@@ -1,0 +1,109 @@
+<Window x:Class="RobControl.App.Views.LooseWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:RobControl.App.ViewModels"
+        xmlns:views="clr-namespace:RobControl.App.Views"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:LooseViewModel}"
+        Title="{Binding Title}"
+        Height="720" Width="1180"
+        MinHeight="480" MinWidth="860"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource ChromeWindow}">
+
+  <!-- Backups opened from a folder, with no site: read-only, no robot contacted, no database. -->
+  <DockPanel>
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource bg-1}" BorderBrush="{DynamicResource line}"
+            BorderThickness="0,1,0,0" Padding="10,5">
+      <TextBlock Style="{StaticResource Muted}" Text="{Binding Status}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" />
+    </Border>
+
+    <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="10,8,10,0" Padding="10,6">
+      <DockPanel>
+        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+          <Button Content="Compare" Style="{StaticResource PrimaryButton}" Command="{Binding CompareCommand}"
+                  ToolTip="Tick two backups, or none for the newest against the one before it." />
+          <Button Content="What changed" Command="{Binding WhatChangedCommand}"
+                  ToolTip="Each robot's newest complete backup against the one before it." />
+          <Button Content="Open folder" Command="{Binding OpenFolderCommand}" />
+        </StackPanel>
+        <TextBlock Style="{StaticResource Muted}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                   Text="From a folder - not a site. Nothing is written here, nothing is sent to a robot." />
+      </DockPanel>
+    </Border>
+
+    <Grid Margin="10,8,10,8">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="4*" MinWidth="300" />
+        <ColumnDefinition Width="6" />
+        <ColumnDefinition Width="7*" MinWidth="420" />
+      </Grid.ColumnDefinitions>
+
+      <Grid Grid.Column="0">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" MinHeight="90" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="2*" MinHeight="120" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Style="{StaticResource PanelHead}" Text="ROBOTS" Margin="2,0,0,4" />
+        <DataGrid Grid.Row="1" ItemsSource="{Binding Robots}" SelectedItem="{Binding Selected}"
+                  AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Robot" Width="*" Binding="{Binding Name, Mode=OneWay}" />
+            <DataGridTextColumn Header="Address" Width="100" Binding="{Binding Address, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+            <DataGridTextColumn Header="Last good" Width="120" Binding="{Binding LastGoodBackup, Mode=OneWay}" />
+          </DataGrid.Columns>
+        </DataGrid>
+        <TextBlock Grid.Row="2" Style="{StaticResource PanelHead}" Text="BACKUPS - TICK TWO TO COMPARE, DOUBLE-CLICK TO OPEN" Margin="2,10,0,4" />
+        <DataGrid Grid.Row="3" x:Name="BackupList" ItemsSource="{Binding Selected.Backups}"
+                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Single"
+                  HeadersVisibility="Column" GridLinesVisibility="Horizontal" RowHeaderWidth="0" BorderThickness="0"
+                  MouseDoubleClick="OnBackupDoubleClick">
+          <DataGrid.Columns>
+            <DataGridTemplateColumn Header="" Width="30">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate DataType="{x:Type vm:BackupRowViewModel}">
+                  <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center"
+                            IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTemplateColumn Header="" Width="22" IsReadOnly="True">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate DataType="{x:Type vm:BackupRowViewModel}">
+                  <Ellipse Width="9" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Fill="{Binding State, Converter={StaticResource ReadinessBrush}}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Taken" Width="125" IsReadOnly="True" Binding="{Binding When, Mode=OneWay}" />
+            <DataGridTextColumn Header="Outcome" Width="75" IsReadOnly="True" Binding="{Binding Outcome, Mode=OneWay}" />
+            <DataGridTextColumn Header="Files" Width="45" IsReadOnly="True" Binding="{Binding Files, Mode=OneWay}" />
+            <DataGridTextColumn Header="Size" Width="*" IsReadOnly="True" Binding="{Binding Size, Mode=OneWay}" />
+          </DataGrid.Columns>
+        </DataGrid>
+      </Grid>
+
+      <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch" Background="Transparent" />
+
+      <TabControl Grid.Column="2">
+        <TabItem x:Name="ChangesTab" Header="Changes">
+          <views:ChangesPanel DataContext="{Binding Compare}" />
+        </TabItem>
+        <TabItem Header="Search">
+          <views:SearchPanel DataContext="{Binding Search}" />
+        </TabItem>
+        <TabItem Header="Alarm history">
+          <views:AlarmHistoryPanel DataContext="{Binding Alarms}" />
+        </TabItem>
+        <TabItem Header="Cell timeline">
+          <views:TimelinePanel DataContext="{Binding Timeline}" />
+        </TabItem>
+      </TabControl>
+    </Grid>
+  </DockPanel>
+</Window>

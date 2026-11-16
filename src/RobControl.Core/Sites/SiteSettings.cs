@@ -80,6 +80,20 @@ public sealed record SiteSettings
     [JsonPropertyName("keepBackups")]
     public int KeepBackups { get; init; }
 
+    /// <summary>
+    /// File name patterns (<c>*</c> and <c>?</c>, as a backup's exclude list), separated by spaces, that
+    /// "What changed" treats as changing on their own - on top of the built-in ones (<c>*.DG</c>, alarm
+    /// logs). For files the first real backups show moving every time without anyone touching them.
+    /// One string rather than a list so the record's equality stays by value.
+    /// </summary>
+    [JsonPropertyName("ignoreChanges")]
+    public string IgnoreChanges { get; init; } = string.Empty;
+
+    /// <summary><see cref="IgnoreChanges"/> split into patterns.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> IgnorePatterns =>
+        (IgnoreChanges ?? string.Empty).Split([' ', ',', ';', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     /// <summary>Anything worth knowing next visit: who to call, which VLAN, where the laptop plugs in.</summary>
     [JsonPropertyName("notes")]
     public string? Notes { get; init; }
@@ -102,5 +116,7 @@ public sealed record SiteSettings
         DefaultFtpUser = string.IsNullOrWhiteSpace(DefaultFtpUser) ? FtpCredentials.Default.User : DefaultFtpUser.Trim(),
         DefaultFtpPassword = DefaultFtpPassword ?? string.Empty,
         Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim(),
+        IgnoreChanges = string.Join(" ", (IgnoreChanges ?? string.Empty).Split([' ', ',', ';', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(64)),
     };
 }
