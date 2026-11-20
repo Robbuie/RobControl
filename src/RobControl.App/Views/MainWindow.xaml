@@ -315,8 +315,20 @@
           <TabItem Header="Backups">
             <DockPanel Margin="8">
               <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" Margin="2,0,0,6" TextWrapping="Wrap"
-                         Text="Tick two to compare them, or press Compare with none ticked for newest vs previous. Double-click opens the folder." />
-              <DataGrid ItemsSource="{Binding Selected.Backups}"
+                         Text="Tick two to compare them, or press Compare with none ticked for newest vs previous. Double-click opens the folder. Select a backup to see the files that did not copy, and why." />
+              <!-- Docked before the grid so the grid keeps the remaining space. Shown only for a
+                   backup that has files missing, skipped or left out; a TextBox so it can be copied. -->
+              <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0"
+                         DataContext="{Binding SelectedItem, ElementName=BackupGrid}"
+                         Visibility="{Binding HasProblems, Converter={StaticResource BoolToVisible}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
+                <TextBlock DockPanel.Dock="Top" Style="{StaticResource MutedWarning}" Margin="2,0,0,4"
+                           Text="Files not in this backup - the FTP transcript in its folder has the controller's exact replies:" />
+                <TextBox Text="{Binding Problems, Mode=OneWay}" IsReadOnly="True" TextWrapping="NoWrap"
+                         MaxHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         FontFamily="{DynamicResource mono}" />
+              </DockPanel>
+              <DataGrid x:Name="BackupGrid"
+                        ItemsSource="{Binding Selected.Backups}"
                         AutoGenerateColumns="False"
                         CanUserAddRows="False"
                         CanUserDeleteRows="False"

@@ -157,6 +157,10 @@ device are copied too, up to four levels down, into the same shape in the archiv
 is listed in the backup's `manifest.json` and does not make the backup partial. A device the
 controller does not have - a USB stick that is not in - fails on its own and the rest still arrive.
 
+When a backup says some files did not copy, select it in the robot's **Backups** tab: the files that
+did not arrive, were skipped or were left out are listed below the history, each with the reason.
+The backup's `ftp-transcript.txt` has the controller's exact replies.
+
 ## What changed
 
 **Backup > What changed** (or the toolbar button) compares each robot's newest complete backup with

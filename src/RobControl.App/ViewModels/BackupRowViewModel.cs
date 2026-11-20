@@ -32,6 +32,40 @@ public sealed class BackupRowViewModel(BackupSet set) : ObservableObject
 
     public string Summary => Manifest.Summary ?? string.Empty;
 
+    /// <summary>
+    /// Every file that did not arrive, was skipped or was left out, one per line with its reason -
+    /// so "5 did not" can be read in the app instead of only in manifest.json.
+    /// </summary>
+    public string Problems
+    {
+        get
+        {
+            var lines = new List<string>();
+            Add("Did not copy", Manifest.Failures);
+            Add("Skipped (name not safe to save)", Manifest.Skipped);
+            Add("Left out as asked", Manifest.NotCopied);
+            return string.Join(Environment.NewLine, lines);
+
+            void Add(string heading, IReadOnlyList<BackupFileProblem> problems)
+            {
+                if (problems.Count == 0)
+                {
+                    return;
+                }
+
+                if (lines.Count > 0)
+                {
+                    lines.Add(string.Empty);
+                }
+
+                lines.Add(string.Create(CultureInfo.CurrentCulture, $"{heading} ({problems.Count}):"));
+                lines.AddRange(problems.Select(p => $"  {p.Device}{p.Name} - {p.Reason}"));
+            }
+        }
+    }
+
+    public bool HasProblems => Manifest.Failures.Count + Manifest.Skipped.Count + Manifest.NotCopied.Count > 0;
+
     public string Controller => Manifest.Identity.Describe();
 
     public string Folder => Set.FolderPath;

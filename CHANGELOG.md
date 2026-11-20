@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 - which files did not copy
+
+- **Backups tab: which files did not copy, and why.** Select a backup and the files that did not
+  arrive, were skipped or were left out are listed under the history with the reason for each.
+  Before, they were only in `manifest.json` and the event log's tooltip.
+
 ## 0.8.0 - what changed, site visit, why stopped, cell timeline
 
 Debugging a working cell, and the visit that comes before it. Still read-only: nothing new writes to a
